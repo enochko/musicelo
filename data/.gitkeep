@@ -1,0 +1,3 @@
+# This file ensures the data/ directory is tracked by git
+# The directory itself will remain empty in the repository
+# (actual data files are in .gitignore)
