@@ -1,0 +1,180 @@
+# ============================================================================
+# MusicElo .gitignore
+# CRITICAL: This file protects your API keys and sensitive data
+# ============================================================================
+
+# ============================================================================
+# SECRETS - NEVER COMMIT THESE
+# ============================================================================
+.env
+*.env
+!.env.example
+secrets.py
+api_keys.py
+credentials.json
+token.json
+*_auth.json
+config_local.py
+
+# Streamlit secrets
+.streamlit/secrets.toml
+
+# YouTube Music authentication
+ytm_headers_auth.json
+oauth.json
+
+# ============================================================================
+# DATABASE & DATA FILES
+# ============================================================================
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+data/*.csv
+data/*.json
+data/*.db
+!data/.gitkeep
+backups/
+
+# ============================================================================
+# PYTHON
+# ============================================================================
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+musicelo_env/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# Conda
+.conda/
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Unit test / coverage
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# pyenv
+.python-version
+
+# ============================================================================
+# LOGS
+# ============================================================================
+*.log
+logs/
+*.log.*
+
+# ============================================================================
+# OPERATING SYSTEM
+# ============================================================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+
+# ============================================================================
+# IDE / EDITORS
+# ============================================================================
+# VSCode
+.vscode/
+*.code-workspace
+
+# PyCharm
+.idea/
+*.iml
+
+# Sublime
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Emacs
+*~
+\#*\#
+
+# ============================================================================
+# TEMPORARY FILES
+# ============================================================================
+tmp/
+temp/
+*.tmp
+*.temp
+*.bak
+*.swp
+
+# ============================================================================
+# PROJECT SPECIFIC
+# ============================================================================
+# Exported playlists
+exports/
+
+# User uploaded files
+uploads/
+
+# Cache
+.cache/
+*.cache
+
+# Generated documentation
+docs/_build/
+site/
