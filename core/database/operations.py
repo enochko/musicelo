@@ -134,27 +134,40 @@ class DatabaseOperations:
     def update_song_stats(
         self, 
         song_id: int, 
-        outcome: float  # 1.0 = win, 0.5 = draw, 0.0 = loss
+        outcome: float  # 1.0 = win, 0.5 = draw, 0.0 = loss, negative to undo
     ) -> None:
         """
         Update song's win/loss/draw statistics
         
         Args:
             song_id: Song ID
-            outcome: Comparison outcome
+            outcome: Comparison outcome (can be negative for undo)
         """
         session = self.Session()
         try:
             song = session.query(Song).filter_by(song_id=song_id).first()
             if song:
-                song.games_played += 1
-                
-                if outcome == 1.0:
-                    song.wins += 1
-                elif outcome == 0.0:
-                    song.losses += 1
+                # Handle undo (negative outcome)
+                if outcome < 0:
+                    song.games_played = max(0, song.games_played - 1)
+                    outcome_abs = abs(outcome)
+                    
+                    if outcome_abs == 1.0:
+                        song.wins = max(0, song.wins - 1)
+                    elif outcome_abs == 0.0:
+                        song.losses = max(0, song.losses - 1)
+                    else:
+                        song.draws = max(0, song.draws - 1)
                 else:
-                    song.draws += 1
+                    # Normal case
+                    song.games_played += 1
+                    
+                    if outcome == 1.0:
+                        song.wins += 1
+                    elif outcome == 0.0:
+                        song.losses += 1
+                    else:
+                        song.draws += 1
                 
                 session.commit()
         finally:

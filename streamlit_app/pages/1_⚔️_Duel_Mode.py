@@ -14,6 +14,7 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from core.database.operations import DatabaseOperations
+from core.database.models import Song, Comparison
 from core.services.glicko2_service import Glicko2Calculator, Opponent
 
 st.set_page_config(
@@ -96,6 +97,9 @@ if 'current_pair' not in st.session_state:
 if 'show_result' not in st.session_state:
     st.session_state.show_result = False
 
+if 'last_comparison' not in st.session_state:
+    st.session_state.last_comparison = None  # Store last comparison for undo
+
 # Sidebar - Filters and Stats
 with st.sidebar:
     st.header("⚙️ Settings")
@@ -131,7 +135,7 @@ with st.sidebar:
     st.markdown("---")
     
     # Quick actions
-    if st.button("🔄 New Pair", use_container_width=True):
+    if st.button("🔄 New Pair", width="stretch"):
         st.session_state.current_pair = None
         st.session_state.show_result = False
         st.rerun()
@@ -197,6 +201,75 @@ song_b = db.get_song(st.session_state.current_pair[1])
 expected_a = calc.win_probability(song_a.rating, song_a.rating_deviation, 
                                    song_b.rating, song_b.rating_deviation)
 
+# Define undo function before it's used
+def undo_last_comparison():
+    """Undo the last comparison"""
+    if not st.session_state.last_comparison:
+        st.warning("No comparison to undo")
+        return
+    
+    last = st.session_state.last_comparison
+    
+    # Mark comparison as undone in database
+    from sqlalchemy import update
+    session = db.Session()
+    try:
+        # Import Comparison model
+        from core.database.models import Comparison
+        
+        # Mark as undone
+        session.query(Comparison).filter_by(
+            comparison_id=last['comparison_id']
+        ).update({'is_undone': True})
+        
+        # Restore previous ratings
+        song_a = session.query(Song).filter_by(song_id=last['song_a_id']).first()
+        song_b = session.query(Song).filter_by(song_id=last['song_b_id']).first()
+        
+        if song_a:
+            song_a.rating = last['song_a_before'][0]
+            song_a.rating_deviation = last['song_a_before'][1]
+            song_a.volatility = last['song_a_before'][2]
+            song_a.confidence_interval_lower = song_a.rating - 2 * song_a.rating_deviation
+            song_a.confidence_interval_upper = song_a.rating + 2 * song_a.rating_deviation
+            
+            # Decrement stats
+            song_a.games_played = max(0, song_a.games_played - 1)
+            if last['outcome_value'] == 1.0:
+                song_a.wins = max(0, song_a.wins - 1)
+            elif last['outcome_value'] == 0.0:
+                song_a.losses = max(0, song_a.losses - 1)
+            else:
+                song_a.draws = max(0, song_a.draws - 1)
+        
+        if song_b:
+            song_b.rating = last['song_b_before'][0]
+            song_b.rating_deviation = last['song_b_before'][1]
+            song_b.volatility = last['song_b_before'][2]
+            song_b.confidence_interval_lower = song_b.rating - 2 * song_b.rating_deviation
+            song_b.confidence_interval_upper = song_b.rating + 2 * song_b.rating_deviation
+            
+            # Decrement stats
+            song_b.games_played = max(0, song_b.games_played - 1)
+            song_b_outcome = 1.0 - last['outcome_value']
+            if song_b_outcome == 1.0:
+                song_b.wins = max(0, song_b.wins - 1)
+            elif song_b_outcome == 0.0:
+                song_b.losses = max(0, song_b.losses - 1)
+            else:
+                song_b.draws = max(0, song_b.draws - 1)
+        
+        session.commit()
+    finally:
+        session.close()
+    
+    # Clear last comparison
+    st.session_state.last_comparison = None
+    st.session_state.comparison_count = max(0, st.session_state.comparison_count - 1)
+    st.session_state.show_result = False
+    
+    st.success("↩️ Comparison undone! Ratings restored.")
+
 # Display songs
 col1, col_vs, col2 = st.columns([5, 1, 5])
 
@@ -213,7 +286,7 @@ with col1:
     # Embedded YouTube player
     if song_a.youtube_video_id:
         st.markdown(f"""
-        <iframe width="100%" height="200" 
+        <iframe width="100%" height="450" 
                 src="https://www.youtube.com/embed/{song_a.youtube_video_id}?autoplay=0" 
                 frameborder="0" 
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
@@ -249,7 +322,7 @@ with col2:
     # Embedded YouTube player
     if song_b.youtube_video_id:
         st.markdown(f"""
-        <iframe width="100%" height="200" 
+        <iframe width="100%" height="450" 
                 src="https://www.youtube.com/embed/{song_b.youtube_video_id}?autoplay=0" 
                 frameborder="0" 
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
@@ -320,13 +393,24 @@ def record_outcome(outcome_value, outcome_label):
     db.update_song_stats(song_b.song_id, 1.0 - outcome_value)
     
     # Record comparison
-    db.record_comparison(
+    comparison = db.record_comparison(
         song_a.song_id, song_b.song_id,
         outcome_value, outcome_label,
         song_a_before, song_a_after,
         song_b_before, song_b_after,
         comparison_mode='duel'
     )
+    
+    # Store for undo
+    st.session_state.last_comparison = {
+        'comparison_id': comparison.comparison_id,
+        'song_a_id': song_a.song_id,
+        'song_b_id': song_b.song_id,
+        'song_a_before': song_a_before,
+        'song_b_before': song_b_before,
+        'outcome_label': outcome_label,
+        'outcome_value': outcome_value,
+    }
     
     # Update session state
     st.session_state.comparison_count += 1
@@ -338,27 +422,27 @@ def record_outcome(outcome_value, outcome_label):
     }
 
 with col1:
-    if st.button(f"🏆 {song_a.canonical_name} (Strong)", use_container_width=True):
+    if st.button(f"🏆 {song_a.canonical_name} (Strong)", width="stretch"):
         record_outcome(1.0, "decisive_win")
         st.rerun()
 
 with col2:
-    if st.button(f"✓ {song_a.canonical_name} (Slight)", use_container_width=True):
+    if st.button(f"✓ {song_a.canonical_name} (Slight)", width="stretch"):
         record_outcome(0.75, "slight_win")
         st.rerun()
 
 with col3:
-    if st.button("🤝 Draw / Equal", use_container_width=True):
+    if st.button("🤝 Draw / Equal", width="stretch"):
         record_outcome(0.5, "draw")
         st.rerun()
 
 with col4:
-    if st.button(f"✓ {song_b.canonical_name} (Slight)", use_container_width=True):
+    if st.button(f"✓ {song_b.canonical_name} (Slight)", width="stretch"):
         record_outcome(0.25, "slight_loss")
         st.rerun()
 
 with col5:
-    if st.button(f"🏆 {song_b.canonical_name} (Strong)", use_container_width=True):
+    if st.button(f"🏆 {song_b.canonical_name} (Strong)", width="stretch"):
         record_outcome(0.0, "decisive_loss")
         st.rerun()
 
@@ -382,10 +466,19 @@ if st.session_state.show_result:
             f"{delta:+.0f}"
         )
     
-    if st.button("➡️ Next Comparison", type="primary", use_container_width=True):
-        st.session_state.current_pair = None
-        st.session_state.show_result = False
-        st.rerun()
+    # Action buttons
+    col_next, col_undo = st.columns([3, 1])
+    
+    with col_next:
+        if st.button("➡️ Next Comparison", type="primary", width="stretch"):
+            st.session_state.current_pair = None
+            st.session_state.show_result = False
+            st.rerun()
+    
+    with col_undo:
+        if st.button("↩️ Undo", width="stretch"):
+            undo_last_comparison()
+            st.rerun()
 
 # Help section
 with st.expander("ℹ️ How to use Duel Mode"):
