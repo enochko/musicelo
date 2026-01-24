@@ -23,50 +23,36 @@ st.set_page_config(
     layout="wide",
 )
 
-# Custom CSS
+# Custom CSS - Hide header and compact design
 st.markdown("""
 <style>
+    /* Hide Streamlit header/menu */
+    header {visibility: hidden;}
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    
     .song-card {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 2rem;
-        border-radius: 15px;
+        padding: 1rem 1.5rem;
+        border-radius: 10px;
         color: white;
         text-align: center;
-        height: 100%;
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
     }
     .song-title {
-        font-size: 1.8rem;
+        font-size: 1.6rem;
         font-weight: bold;
-        margin-bottom: 0.5rem;
+        margin-bottom: 0.2rem;
     }
     .song-artist {
-        font-size: 1.2rem;
-        opacity: 0.9;
-        margin-bottom: 1rem;
-    }
-    .song-rating {
-        font-size: 2.5rem;
-        font-weight: bold;
-        margin: 1rem 0;
-    }
-    .song-rd {
         font-size: 1rem;
-        opacity: 0.8;
+        opacity: 0.9;
     }
     .vs-divider {
         text-align: center;
-        font-size: 3rem;
+        font-size: 2.5rem;
         font-weight: bold;
         color: #667eea;
-        padding: 2rem 0;
-    }
-    .outcome-buttons {
-        display: flex;
-        gap: 1rem;
-        margin-top: 2rem;
+        padding: 1.5rem 0;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -98,7 +84,7 @@ if 'show_result' not in st.session_state:
     st.session_state.show_result = False
 
 if 'last_comparison' not in st.session_state:
-    st.session_state.last_comparison = None  # Store last comparison for undo
+    st.session_state.last_comparison = None
 
 # Sidebar - Filters and Stats
 with st.sidebar:
@@ -131,6 +117,12 @@ with st.sidebar:
     
     total_comparisons = db.get_comparison_count()
     st.metric("Total Comparisons", total_comparisons)
+    
+    st.markdown("---")
+    
+    # YouTube player height preference
+    st.subheader("🎥 Player Size")
+    player_height = st.slider("YouTube Height (px)", 250, 600, 400, 50)
     
     st.markdown("---")
     
@@ -184,23 +176,6 @@ def select_random_pair():
     
     return song_a, song_b
 
-# Load current pair
-if st.session_state.current_pair is None:
-    song_a, song_b = select_random_pair()
-    if song_a and song_b:
-        st.session_state.current_pair = (song_a.song_id, song_b.song_id)
-    else:
-        st.error("Not enough songs match your filters. Try relaxing the filters.")
-        st.stop()
-
-# Get current songs
-song_a = db.get_song(st.session_state.current_pair[0])
-song_b = db.get_song(st.session_state.current_pair[1])
-
-# Calculate expected outcome
-expected_a = calc.win_probability(song_a.rating, song_a.rating_deviation, 
-                                   song_b.rating, song_b.rating_deviation)
-
 # Define undo function before it's used
 def undo_last_comparison():
     """Undo the last comparison"""
@@ -211,12 +186,8 @@ def undo_last_comparison():
     last = st.session_state.last_comparison
     
     # Mark comparison as undone in database
-    from sqlalchemy import update
     session = db.Session()
     try:
-        # Import Comparison model
-        from core.database.models import Comparison
-        
         # Mark as undone
         session.query(Comparison).filter_by(
             comparison_id=last['comparison_id']
@@ -270,41 +241,44 @@ def undo_last_comparison():
     
     st.success("↩️ Comparison undone! Ratings restored.")
 
+# Load current pair
+if st.session_state.current_pair is None:
+    song_a, song_b = select_random_pair()
+    if song_a and song_b:
+        st.session_state.current_pair = (song_a.song_id, song_b.song_id)
+    else:
+        st.error("Not enough songs match your filters. Try relaxing the filters.")
+        st.stop()
+
+# Get current songs
+song_a = db.get_song(st.session_state.current_pair[0])
+song_b = db.get_song(st.session_state.current_pair[1])
+
+# Calculate expected outcome
+expected_a = calc.win_probability(song_a.rating, song_a.rating_deviation, 
+                                   song_b.rating, song_b.rating_deviation)
+
 # Display songs
 col1, col_vs, col2 = st.columns([5, 1, 5])
 
 with col1:
     st.markdown(f"""
     <div class="song-card">
-        <div>
-            <div class="song-title">{song_a.canonical_name}</div>
-            <div class="song-artist">{song_a.artist_name}</div>
-        </div>
+        <div class="song-title">{song_a.canonical_name}</div>
+        <div class="song-artist">{song_a.artist_name}</div>
     </div>
     """, unsafe_allow_html=True)
     
-    # Embedded YouTube player
+    # Embedded YouTube player with configurable height
     if song_a.youtube_video_id:
         st.markdown(f"""
-        <iframe width="100%" height="450" 
+        <iframe width="100%" height="{player_height}" 
                 src="https://www.youtube.com/embed/{song_a.youtube_video_id}?autoplay=0" 
                 frameborder="0" 
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
                 allowfullscreen>
         </iframe>
         """, unsafe_allow_html=True)
-    
-    # Details in expander (hidden by default)
-    with st.expander("📊 View Stats"):
-        st.markdown(f"""
-        **Current Rating**: {song_a.rating:.0f} ±{song_a.rating_deviation:.0f}
-        
-        **Details:**
-        - Language: {song_a.language.capitalize()}
-        - Category: {song_a.category}
-        - Games: {song_a.games_played} ({song_a.wins}W-{song_a.losses}L-{song_a.draws}D)
-        """)
-
 
 with col_vs:
     st.markdown('<div class="vs-divider">VS</div>', unsafe_allow_html=True)
@@ -312,39 +286,24 @@ with col_vs:
 with col2:
     st.markdown(f"""
     <div class="song-card">
-        <div>
-            <div class="song-title">{song_b.canonical_name}</div>
-            <div class="song-artist">{song_b.artist_name}</div>
-        </div>
+        <div class="song-title">{song_b.canonical_name}</div>
+        <div class="song-artist">{song_b.artist_name}</div>
     </div>
     """, unsafe_allow_html=True)
     
-    # Embedded YouTube player
+    # Embedded YouTube player with configurable height
     if song_b.youtube_video_id:
         st.markdown(f"""
-        <iframe width="100%" height="450" 
+        <iframe width="100%" height="{player_height}" 
                 src="https://www.youtube.com/embed/{song_b.youtube_video_id}?autoplay=0" 
                 frameborder="0" 
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
                 allowfullscreen>
         </iframe>
         """, unsafe_allow_html=True)
-    
-    # Details in expander (hidden by default)
-    with st.expander("📊 View Stats"):
-        st.markdown(f"""
-        **Current Rating**: {song_b.rating:.0f} ±{song_b.rating_deviation:.0f}
-        
-        **Details:**
-        - Language: {song_b.language.capitalize()}
-        - Category: {song_b.category}
-        - Games: {song_b.games_played} ({song_b.wins}W-{song_b.losses}L-{song_b.draws}D)
-        """)
-
 
 # Outcome selection
 st.markdown("---")
-st.subheader("🎯 Which song do you prefer?")
 
 col1, col2, col3, col4, col5 = st.columns(5)
 
@@ -421,34 +380,38 @@ def record_outcome(outcome_value, outcome_label):
         'outcome_label': outcome_label,
     }
 
-with col1:
-    if st.button(f"🏆 {song_a.canonical_name} (Strong)", width="stretch"):
-        record_outcome(1.0, "decisive_win")
-        st.rerun()
-
-with col2:
-    if st.button(f"✓ {song_a.canonical_name} (Slight)", width="stretch"):
-        record_outcome(0.75, "slight_win")
-        st.rerun()
-
-with col3:
-    if st.button("🤝 Draw / Equal", width="stretch"):
-        record_outcome(0.5, "draw")
-        st.rerun()
-
-with col4:
-    if st.button(f"✓ {song_b.canonical_name} (Slight)", width="stretch"):
-        record_outcome(0.25, "slight_loss")
-        st.rerun()
-
-with col5:
-    if st.button(f"🏆 {song_b.canonical_name} (Strong)", width="stretch"):
-        record_outcome(0.0, "decisive_loss")
-        st.rerun()
+# Only show voting buttons if no result shown yet
+if not st.session_state.show_result:
+    st.subheader("🎯 Which song do you prefer?")
+    
+    with col1:
+        if st.button(f"🏆 {song_a.canonical_name} (Strong)", width="stretch"):
+            record_outcome(1.0, "decisive_win")
+            st.rerun()
+    
+    with col2:
+        if st.button(f"✓ {song_a.canonical_name} (Slight)", width="stretch"):
+            record_outcome(0.75, "slight_win")
+            st.rerun()
+    
+    with col3:
+        if st.button("🤝 Draw / Equal", width="stretch"):
+            record_outcome(0.5, "draw")
+            st.rerun()
+    
+    with col4:
+        if st.button(f"✓ {song_b.canonical_name} (Slight)", width="stretch"):
+            record_outcome(0.25, "slight_loss")
+            st.rerun()
+    
+    with col5:
+        if st.button(f"🏆 {song_b.canonical_name} (Strong)", width="stretch"):
+            record_outcome(0.0, "decisive_loss")
+            st.rerun()
 
 # Show result
 if st.session_state.show_result:
-    st.success(f"✅ Comparison recorded! Outcome: {st.session_state.result_data['outcome_label']}")
+    st.success(f"✅ Vote recorded! Outcome: {st.session_state.result_data['outcome_label']}")
     
     col1, col2 = st.columns(2)
     with col1:
@@ -485,24 +448,19 @@ with st.expander("ℹ️ How to use Duel Mode"):
     st.markdown("""
     ### Making Comparisons
     
-    1. **Listen** to both songs (click YouTube Music links)
+    1. **Listen** to both songs (use embedded players)
     2. **Choose** your preference:
        - 🏆 **Strong preference**: You clearly prefer one song
        - ✓ **Slight preference**: You prefer one, but it's close
        - 🤝 **Draw**: You like them equally
     
     3. **Ratings update** automatically using Glicko-2
+    4. **Undo** if you change your mind
     
     ### Tips
     
-    - **Be honest!** There are no wrong answers
-    - **Consistent choices** lead to better ratings
-    - **More comparisons** = more accurate rankings
+    - Be honest and consistent with your choices
+    - Use the **player height slider** in sidebar to adjust video size
     - Use **filters** to focus on specific categories
-    
-    ### Rating Changes
-    
-    - Upsets (underdog wins) cause bigger changes
-    - Expected outcomes cause smaller changes
-    - Rating Deviation decreases with more comparisons
+    - **More comparisons** = more accurate rankings
     """)

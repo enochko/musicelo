@@ -21,6 +21,15 @@ st.set_page_config(
     layout="wide",
 )
 
+# Hide Streamlit header
+st.markdown("""
+<style>
+    header {visibility: hidden;}
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+</style>
+""", unsafe_allow_html=True)
+
 # Initialize database
 @st.cache_resource
 def get_database():
@@ -44,36 +53,52 @@ with st.sidebar:
         key="sort_by"
     )
     
-    # Language filter
+    # Language filter - default all
     language_filter = st.multiselect(
         "Language",
         ["korean", "japanese", "english", "instrumental"],
-        default=["korean", "japanese", "english"]
+        default=["korean", "japanese", "english", "instrumental"]
     )
     
-    # Category filter
+    # Category filter - default all
     category_filter = st.multiselect(
         "Category",
         ["TWICE", "Solo", "Subunit", "Collaboration"],
-        default=["TWICE"]
+        default=["TWICE", "Solo", "Subunit", "Collaboration"]
     )
     
-    # Include variants
+    # Include variants - default off
     include_variants = st.checkbox("Include variants (remixes, etc.)", value=False)
     
     # Minimum comparisons
     min_games = st.slider("Minimum comparisons", 0, 50, 5)
     
-    # Rating range
+    # Rating range - get actual min/max from database
     st.subheader("Rating Range")
-    min_rating = st.number_input("Min Rating", value=0, step=50)
-    max_rating = st.number_input("Max Rating", value=3000, step=50)
+    all_songs = db.get_all_songs()
+    if all_songs:
+        actual_min = int(min(s.rating for s in all_songs))
+        actual_max = int(max(s.rating for s in all_songs))
+        
+        min_rating = st.number_input("Min Rating", 
+                                     value=actual_min, 
+                                     min_value=0, 
+                                     max_value=3000, 
+                                     step=50)
+        max_rating = st.number_input("Max Rating", 
+                                     value=actual_max, 
+                                     min_value=0, 
+                                     max_value=3000, 
+                                     step=50)
+    else:
+        min_rating = 0
+        max_rating = 3000
     
     st.markdown("---")
     
     # Export
     st.subheader("📤 Export")
-    if st.button("Download as CSV", use_container_width=True):
+    if st.button("Download as CSV", width="stretch"):
         st.session_state.download_trigger = True
 
 # Determine sort parameters
@@ -146,7 +171,7 @@ else:
     )
     
     if view_mode == "Table":
-        # Table view
+        # Table view with separate link column
         df_data = []
         for rank, song in enumerate(songs, 1):
             df_data.append({
@@ -160,41 +185,35 @@ else:
                 'Games': song.games_played,
                 'W-L-D': f"{song.wins}-{song.losses}-{song.draws}",
                 'Win %': f"{(song.wins / song.games_played * 100):.1f}%" if song.games_played > 0 else "N/A",
+                'YouTube': song.youtube_music_url if song.youtube_music_url else "",
             })
         
         df = pd.DataFrame(df_data)
         
         st.dataframe(
             df,
-            use_container_width=True,
             hide_index=True,
             column_config={
-                "Rank": st.column_config.NumberColumn(
-                    "Rank",
-                    help="Current ranking position",
-                    width="small",
-                ),
-                "Song": st.column_config.TextColumn(
-                    "Song",
-                    help="Song title",
-                    width="large",
-                ),
-                "Rating": st.column_config.TextColumn(
-                    "Rating",
-                    help="Glicko-2 rating",
-                    width="small",
-                ),
-                "Confidence": st.column_config.TextColumn(
-                    "±RD",
-                    help="Rating deviation (lower = more confident)",
-                    width="small",
-                ),
+                "Rank": st.column_config.NumberColumn("Rank", width="small"),
+                "Song": st.column_config.TextColumn("Song", width="large"),
+                "Artist": st.column_config.TextColumn("Artist", width="medium"),
+                "Rating": st.column_config.TextColumn("Rating", width="small"),
+                "Confidence": st.column_config.TextColumn("±RD", width="small"),
+                "Language": st.column_config.TextColumn("Language", width="small"),
+                "Category": st.column_config.TextColumn("Category", width="small"),
+                "Games": st.column_config.NumberColumn("Games", width="small"),
+                "W-L-D": st.column_config.TextColumn("W-L-D", width="small"),
+                "Win %": st.column_config.TextColumn("Win %", width="small"),
+                "YouTube": st.column_config.LinkColumn("YouTube", width="small", display_text="▶️"),
             }
         )
         
         # Export functionality
         if st.session_state.get('download_trigger', False):
-            csv = df.to_csv(index=False)
+            # Remove YouTube column for CSV export
+            df_export = df.drop(columns=['YouTube'])
+            
+            csv = df_export.to_csv(index=False)
             st.download_button(
                 label="💾 Save CSV",
                 data=csv,
@@ -204,7 +223,7 @@ else:
             st.session_state.download_trigger = False
     
     else:
-        # Card view
+        # Card view - more compact
         st.markdown("### Top Rankings")
         
         # Show top 50 in card view
@@ -226,31 +245,34 @@ else:
                         st.markdown(f"## #{rank}")
                 
                 with col2:
-                    st.markdown(f"### {song.canonical_name}")
+                    # Song title with YouTube link
+                    if song.youtube_music_url:
+                        st.markdown(f"### [{song.canonical_name}]({song.youtube_music_url})")
+                    else:
+                        st.markdown(f"### {song.canonical_name}")
+                    
+                    # Artist on its own line
                     st.markdown(f"*{song.artist_name}*")
                     
-                    # Additional info
-                    info_parts = []
-                    info_parts.append(f"🌍 {song.language.capitalize()}")
-                    info_parts.append(f"📁 {song.category}")
+                    # Metadata in caption row (aligned with ±RD and Win%)
+                    metadata_parts = [f"🌍 {song.language.capitalize()}", f"📁 {song.category}"]
                     if song.variant_type:
-                        info_parts.append(f"🔄 {song.variant_type}")
-                    
-                    st.caption(" • ".join(info_parts))
+                        metadata_parts.append(f"🔄 {song.variant_type}")
+                    st.caption(" • ".join(metadata_parts))
                 
                 with col3:
-                    st.metric("Rating", f"{song.rating:.0f}", 
-                             delta=f"±{song.rating_deviation:.0f}")
+                    # Rating column
+                    st.metric("Rating", f"{song.rating:.0f}")
+                    st.caption(f"📊 ±{song.rating_deviation:.0f}")
                 
                 with col4:
+                    # Games column (aligned with rating)
                     st.metric("Games", song.games_played)
                     if song.games_played > 0:
                         win_rate = song.wins / song.games_played * 100
-                        st.caption(f"Win: {win_rate:.0f}%")
-                
-                # Links
-                if song.youtube_music_url:
-                    st.markdown(f"[▶️ Play on YouTube Music]({song.youtube_music_url})")
+                        st.caption(f"🏆 Win: {win_rate:.0f}%")
+                    else:
+                        st.caption("🏆 No games")  # Consistent formatting
                 
                 st.markdown("---")
         
@@ -301,7 +323,7 @@ with st.expander("ℹ️ Understanding the Rankings"):
     **Rating (μ)**
     - Your song's current score
     - Higher = better in your preference
-    - Starts at 1500 (or boosted if liked/familiar)
+    - Default start: 1500 (or boosted if liked/familiar)
     
     **Rating Deviation (RD) / Confidence**
     - How certain we are about the rating
@@ -315,22 +337,17 @@ with st.expander("ℹ️ Understanding the Rankings"):
     - More games = more accurate rating
     - At least 10-15 games recommended for stability
     
-    **Win-Loss-Draw Record**
-    - How the song performed in comparisons
-    - Win rate indicates dominance at current rating level
-    
     ### Interpreting Ratings
     
     - **1700+**: Your absolute favorites
     - **1600-1700**: Really love these
     - **1500-1600**: Like them, solid songs
     - **1400-1500**: Okay, but not favorites
-    - **1300-**: Not your preference
+    - **<1400**: Not your preference
     
-    ### Tips for Accurate Rankings
+    ### Tips
     
     - Compare songs until RD is below ±100
     - Songs with high RD need more comparisons
-    - Look for songs with few games to improve accuracy
-    - Consistency in choices leads to stable ratings
+    - Click song titles to open in YouTube Music
     """)
