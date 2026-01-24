@@ -167,7 +167,8 @@ class DatabaseOperations:
         category: str = None,
         is_original: bool = None,
         min_rating: float = None,
-        max_rating: float = None
+        max_rating: float = None,
+        min_games: int = None
     ) -> List[Song]:
         """
         Search songs with filters
@@ -179,6 +180,7 @@ class DatabaseOperations:
             is_original: Filter originals vs variants
             min_rating: Minimum rating
             max_rating: Maximum rating
+            min_games: Minimum games played
         
         Returns:
             List of matching songs
@@ -204,6 +206,9 @@ class DatabaseOperations:
             
             if max_rating is not None:
                 q = q.filter(Song.rating <= max_rating)
+            
+            if min_games is not None:
+                q = q.filter(Song.games_played >= min_games)
             
             return q.all()
         finally:
