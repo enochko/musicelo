@@ -353,77 +353,72 @@ class Comparison(Base):
         return f"<Comparison(id={self.comparison_id}, A={self.song_a_id} vs B={self.song_b_id}, outcome={self.outcome})>"
 
 
+
 class Playlist(Base):
     """
-    Generated playlists (mood-based, transition, etc.)
+    User-generated playlists with ratings
     """
     __tablename__ = 'playlists'
     
     playlist_id = Column(Integer, primary_key=True, autoincrement=True)
     
-    name = Column(String(200), nullable=False)
-    """User-friendly playlist name"""
+    playlist_name = Column(String(200))
+    """User-given name (optional)"""
     
-    generation_type = Column(String(50), nullable=False)
-    """Type: mood, transition, top_rated, random, album_play"""
-    
-    parameters = Column(Text, nullable=True)
-    """JSON string of generation parameters (e.g., {"mood": "happy", "min_valence": 0.7})"""
+    playlist_mode = Column(String(50), nullable=False)
+    """Mode: discover, favorites, random, focused"""
     
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    """When playlist was created"""
     
-    overall_rating = Column(Float, nullable=True)
-    """User's rating of the playlist (1-5 stars)"""
+    completed_at = Column(DateTime)
+    """When playlist was completed"""
     
-    notes = Column(Text, nullable=True)
+    user_rating = Column(Integer)
+    """User rating (1-5 stars)"""
+    
+    user_feedback = Column(Text)
+    """Optional user feedback"""
+    
+    song_count = Column(Integer, default=0)
+    """Number of songs in playlist"""
+    
+    comparisons_made = Column(Integer, default=0)
+    """Number of comparisons made"""
     
     # Relationships
-    songs = relationship('PlaylistSong', back_populates='playlist', cascade='all, delete-orphan')
+    songs = relationship("PlaylistSong", back_populates="playlist", cascade="all, delete-orphan")
     
     def __repr__(self):
-        return f"<Playlist(id={self.playlist_id}, name='{self.name}', type={self.generation_type})>"
+        return f"<Playlist {self.playlist_id} ({self.playlist_mode})>"
 
 
 class PlaylistSong(Base):
     """
-    Playlist-Song relationship with playback tracking
+    Songs in a playlist (maintains order)
     """
     __tablename__ = 'playlist_songs'
     
-    playlist_id = Column(Integer, ForeignKey('playlists.playlist_id'), primary_key=True)
-    song_id = Column(Integer, ForeignKey('songs.song_id'), primary_key=True)
+    playlist_song_id = Column(Integer, primary_key=True, autoincrement=True)
+    
+    playlist_id = Column(Integer, ForeignKey('playlists.playlist_id'), nullable=False)
+    song_id = Column(Integer, ForeignKey('songs.song_id'), nullable=False)
+    
     position = Column(Integer, nullable=False)
-    """Position in playlist (1-indexed)"""
+    """Position in playlist (1, 2, 3, ...)"""
     
     was_played = Column(Boolean, default=False)
-    """True if user played this song"""
+    """Whether song was played"""
     
-    song_rating = Column(Float, nullable=True)
-    """User's rating of this specific song in playlist context"""
-    
-    skip_time = Column(Integer, nullable=True)
-    """Seconds into song when skipped (NULL if not skipped)"""
+    was_compared = Column(Boolean, default=False)
+    """Whether song was compared"""
     
     # Relationships
-    playlist = relationship('Playlist', back_populates='songs')
-    song = relationship('Song')
+    playlist = relationship("Playlist", back_populates="songs")
+    song = relationship("Song")
     
     def __repr__(self):
-        return f"<PlaylistSong(playlist={self.playlist_id}, song={self.song_id}, pos={self.position})>"
-
-
-class Parameter(Base):
-    """
-    System parameters (Glicko-2 constants, etc.)
-    """
-    __tablename__ = 'parameters'
-    
-    param_name = Column(String(100), primary_key=True)
-    param_value = Column(Float, nullable=False)
-    description = Column(Text, nullable=True)
-    
-    def __repr__(self):
-        return f"<Parameter(name='{self.param_name}', value={self.param_value})>"
+        return f"<PlaylistSong playlist={self.playlist_id} song={self.song_id} pos={self.position}>"
 
 
 class YTMPlaylist(Base):
@@ -447,6 +442,46 @@ class YTMPlaylist(Base):
     
     def __repr__(self):
         return f"<YTMPlaylist(id='{self.playlist_id}', name='{self.playlist_name}')>"
+
+
+class Parameter(Base):
+    """
+    System parameters (Glicko-2 constants, etc.)
+    """
+    __tablename__ = 'parameters'
+    
+    param_name = Column(String(100), primary_key=True)
+    param_value = Column(Float, nullable=False)
+    description = Column(Text, nullable=True)
+    
+    def __repr__(self):
+        return f"<Parameter(name='{self.param_name}', value={self.param_value})>"
+
+
+class AdminAction(Base):
+    """
+    Log of admin actions for audit trail and undo capability
+    """
+    __tablename__ = 'admin_actions'
+    
+    action_id = Column(Integer, primary_key=True, autoincrement=True)
+    action_type = Column(String(50), nullable=False, index=True)
+    """Type: merge_songs, update_classification, update_language, bulk_operation"""
+    
+    description = Column(Text, nullable=False)
+    """Human-readable description of action"""
+    
+    affected_song_ids = Column(Text)
+    """Comma-separated list of affected song IDs"""
+    
+    action_data = Column(Text)
+    """JSON data for undo/details (before/after states)"""
+    
+    action_timestamp = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    """When action was performed"""
+    
+    def __repr__(self):
+        return f"<AdminAction {self.action_type} at {self.action_timestamp}>"
 
 
 # Database initialization functions

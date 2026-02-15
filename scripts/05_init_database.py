@@ -1,20 +1,18 @@
 """
-Initialize MusicElo database from collected data
+Improved Database Initialization
 
-Loads:
-- Songs from ytm_enriched.csv
-- Albums from albums.csv
-- User preferences (liked, familiar, to-listen)
-- Applies Glicko-2 initial ratings
-
-Creates complete database ready for ranking
+Key improvements:
+1. Uses display_title for user-facing names
+2. Properly handles same song on multiple albums (one Song, many AlbumTrack)
+3. Better variant linking
+4. Album display in schema
 """
 
 import pandas as pd
-import numpy as np
 from pathlib import Path
 from datetime import datetime
 import sys
+import logging
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
@@ -24,9 +22,12 @@ from core.database.models import create_database, get_session, initialize_parame
 from core.database.models import Song, Album, AlbumTrack, YTMPlaylist
 from config import Config
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-class DatabaseInitializer:
-    """Initialize database from CSV data"""
+
+class ImprovedDatabaseInitializer:
+    """Initialize database with improved data handling"""
     
     def __init__(self, data_dir: str = 'data'):
         self.data_dir = Path(data_dir)
@@ -54,7 +55,6 @@ class DatabaseInitializer:
             'to_listen': set(),
         }
         
-        # Load each preference file
         for pref_type, filepath in [
             ('liked', self.liked_file),
             ('familiar', self.familiar_file),
@@ -64,21 +64,12 @@ class DatabaseInitializer:
                 df = pd.read_csv(filepath)
                 video_ids = set(df['video_id'].dropna())
                 preferences[pref_type] = video_ids
-                print(f"   ✅ {pref_type}: {len(video_ids)} songs")
+                logger.info(f"   {pref_type}: {len(video_ids)} songs")
         
         return preferences
     
     def determine_initial_elo(self, video_id: str, preferences: dict) -> tuple:
-        """
-        Determine initial Elo rating and source
-        
-        Args:
-            video_id: YouTube video ID
-            preferences: Dict of preference sets
-        
-        Returns:
-            (elo_rating, elo_source)
-        """
+        """Determine initial Elo rating and source"""
         if video_id in preferences['liked']:
             return self.elo_boosts['liked'], 'user_liked'
         elif video_id in preferences['familiar']:
@@ -88,98 +79,7 @@ class DatabaseInitializer:
         else:
             return self.elo_boosts['unknown'], 'unknown'
     
-    def insert_songs(self, session, songs_df: pd.DataFrame, preferences: dict):
-        """
-        Insert songs into database
-        
-        Args:
-            session: SQLAlchemy session
-            songs_df: DataFrame with song data
-            preferences: User preferences dict
-        """
-        print("\n📀 Inserting songs...")
-        
-        songs_created = 0
-        elo_distribution = {}
-        
-        for _, row in songs_df.iterrows():
-            # Determine initial Elo
-            video_id = row.get('video_id')
-            initial_elo, elo_source = self.determine_initial_elo(video_id, preferences)
-            
-            # Track distribution
-            elo_distribution[elo_source] = elo_distribution.get(elo_source, 0) + 1
-            
-            # Create song
-            song = Song(
-                canonical_name=row.get('canonical_name', row['title']),
-                youtube_music_url=row.get('youtube_music_url'),
-                youtube_video_id=video_id,
-                youtube_url=row.get('youtube_url'),
-                thumbnail_url=row.get('thumbnail_url'),
-                
-                # Variant info (will link song IDs in second pass)
-                is_original=row.get('is_original', True),
-                variant_type=row.get('variant_type'),
-                
-                # Language
-                language=row.get('language', 'korean'),
-                
-                # Duration
-                duration_ms=row.get('duration_ms'),
-                duration_seconds=row.get('duration_seconds'),
-                
-                # Artist
-                artist_name=row.get('artists', 'TWICE'),
-                
-                # Category (detect from artist name)
-                category=self._detect_category(row.get('artists', 'TWICE')),
-                
-                # Glicko-2 (initial values)
-                rating=float(initial_elo),
-                rating_deviation=350.0,  # High uncertainty for new songs
-                volatility=0.06,
-                
-                # User flags
-                is_liked=video_id in preferences['liked'],
-                is_familiar=video_id in preferences['familiar'],
-            )
-            
-            session.add(song)
-            songs_created += 1
-        
-        session.commit()
-        
-        # Second pass: Link variants to originals
-        print(f"\n🔗 Linking variants to originals...")
-        variants_linked = 0
-        
-        for _, row in songs_df.iterrows():
-            if not row.get('is_original', True) and pd.notna(row.get('original_video_id')):
-                # This is a variant, find the original
-                variant_video_id = row.get('video_id')
-                original_video_id = row.get('original_video_id')
-                
-                # Find both songs in database
-                variant_song = session.query(Song).filter_by(youtube_video_id=variant_video_id).first()
-                original_song = session.query(Song).filter_by(youtube_video_id=original_video_id).first()
-                
-                if variant_song and original_song:
-                    variant_song.original_song_id = original_song.song_id
-                    variants_linked += 1
-        
-        session.commit()
-        
-        if variants_linked > 0:
-            print(f"   ✅ Linked {variants_linked} variants to originals")
-        
-        print(f"   ✅ Created {songs_created} songs")
-        print(f"\n   📊 Initial Elo distribution:")
-        for source, count in sorted(elo_distribution.items()):
-            elo = self.elo_boosts.get(source, 1500)
-            print(f"      {source}: {count} songs @ {elo} Elo")
-    
-    def _detect_category(self, artist_name: str) -> str:
+    def detect_category(self, artist_name: str) -> str:
         """Detect song category from artist name"""
         artist_lower = artist_name.lower()
         
@@ -200,63 +100,155 @@ class DatabaseInitializer:
         # Default: TWICE
         return 'TWICE'
     
+    def insert_songs(self, session, songs_df: pd.DataFrame, preferences: dict):
+        """
+        Insert songs into database
+        
+        Key: Uses display_title for user-facing name
+        """
+        logger.info("\n📀 Inserting songs...")
+        
+        songs_created = 0
+        elo_distribution = {}
+        
+        for _, row in songs_df.iterrows():
+            video_id = row.get('video_id')
+            initial_elo, elo_source = self.determine_initial_elo(video_id, preferences)
+            
+            # Track distribution
+            elo_distribution[elo_source] = elo_distribution.get(elo_source, 0) + 1
+            
+            # Use display_title if available, otherwise canonical_name
+            display_name = row.get('display_title', row.get('canonical_name', row['title']))
+            
+            # Create song
+            song = Song(
+                canonical_name=display_name,  # Use full title with parentheses
+                youtube_music_url=row.get('youtube_music_url'),
+                youtube_video_id=video_id,
+                youtube_url=row.get('youtube_url'),
+                thumbnail_url=row.get('thumbnail_url'),
+                
+                # Variant info (will be linked in second pass)
+                is_original=row.get('is_original', True),
+                variant_type=row.get('variant_type'),
+                
+                # Language
+                language=row.get('language', 'korean'),
+                
+                # Duration
+                duration_ms=row.get('duration_ms'),
+                duration_seconds=row.get('duration_seconds'),
+                
+                # Artist
+                artist_name=row.get('artists', 'TWICE'),
+                
+                # Category
+                category=self.detect_category(row.get('artists', 'TWICE')),
+                
+                # Glicko-2 (initial values)
+                rating=float(initial_elo),
+                rating_deviation=350.0,
+                volatility=0.06,
+                
+                # User flags
+                is_liked=video_id in preferences['liked'],
+                is_familiar=video_id in preferences['familiar'],
+            )
+            
+            session.add(song)
+            songs_created += 1
+        
+        session.commit()
+        
+        logger.info(f"   ✅ Created {songs_created} songs")
+        logger.info(f"\n   📊 Initial Elo distribution:")
+        for source, count in sorted(elo_distribution.items()):
+            elo = self.elo_boosts.get(source, 1500)
+            logger.info(f"      {source}: {count} songs @ {elo} Elo")
+        
+        # Second pass: Link variants to originals
+        logger.info(f"\n🔗 Linking variants to originals...")
+        variants_linked = 0
+        
+        for _, row in songs_df.iterrows():
+            if not row.get('is_original', True) and pd.notna(row.get('original_video_id')):
+                variant_video_id = row.get('video_id')
+                original_video_id = row.get('original_video_id')
+                
+                # Find both songs in database
+                variant_song = session.query(Song).filter_by(youtube_video_id=variant_video_id).first()
+                original_song = session.query(Song).filter_by(youtube_video_id=original_video_id).first()
+                
+                if variant_song and original_song:
+                    variant_song.original_song_id = original_song.song_id
+                    variants_linked += 1
+        
+        session.commit()
+        
+        if variants_linked > 0:
+            logger.info(f"   ✅ Linked {variants_linked} variants to originals")
+    
     def insert_albums(self, session, albums_df: pd.DataFrame, songs_df: pd.DataFrame):
         """
         Insert albums and link to songs
         
-        Args:
-            session: SQLAlchemy session
-            albums_df: DataFrame with album data
-            songs_df: DataFrame with song data (to link tracks)
+        Key: One song can appear on multiple albums
         """
-        print("\n💿 Inserting albums...")
+        logger.info("\n💿 Inserting albums...")
         
         albums_created = 0
         tracks_linked = 0
         
+        # Create a lookup: album_name -> set of video_ids
+        album_tracks = {}
+        for _, row in songs_df.iterrows():
+            album = row.get('album', '')
+            video_id = row.get('video_id')
+            if album and video_id:
+                if album not in album_tracks:
+                    album_tracks[album] = []
+                album_tracks[album].append(video_id)
+        
         for _, album_row in albums_df.iterrows():
+            album_name = album_row['album_name']
+            
             # Create album
             album = Album(
-                album_name=album_row['album_name'],
+                album_name=album_name,
                 album_type=album_row.get('album_type', 'ep'),
                 language=album_row.get('language', 'korean'),
             )
             session.add(album)
-            session.flush()  # Get album_id
+            session.flush()
             
             albums_created += 1
             
-            # Find songs from this album
-            album_songs = songs_df[songs_df['album'] == album_row['album_name']]
-            
-            # Link songs to album
-            for idx, song_row in enumerate(album_songs.iterrows(), 1):
-                _, song_data = song_row
-                
-                # Find song in database by video_id
-                song = session.query(Song).filter_by(
-                    youtube_video_id=song_data.get('video_id')
-                ).first()
-                
-                if song:
-                    # Create album track link
-                    album_track = AlbumTrack(
-                        album_id=album.album_id,
-                        song_id=song.song_id,
-                        track_number=idx,  # Sequential for now
-                        disc_number=1,
-                    )
-                    session.add(album_track)
-                    tracks_linked += 1
+            # Link songs to this album
+            if album_name in album_tracks:
+                for track_num, video_id in enumerate(album_tracks[album_name], 1):
+                    # Find song in database
+                    song = session.query(Song).filter_by(youtube_video_id=video_id).first()
+                    
+                    if song:
+                        # Create album track link
+                        album_track = AlbumTrack(
+                            album_id=album.album_id,
+                            song_id=song.song_id,
+                            track_number=track_num,
+                            disc_number=1,
+                        )
+                        session.add(album_track)
+                        tracks_linked += 1
         
         session.commit()
         
-        print(f"   ✅ Created {albums_created} albums")
-        print(f"   ✅ Linked {tracks_linked} album tracks")
+        logger.info(f"   ✅ Created {albums_created} albums")
+        logger.info(f"   ✅ Linked {tracks_linked} album tracks")
     
     def insert_source_playlists(self, session):
         """Record which YTM playlists were used as sources"""
-        print("\n📋 Recording source playlists...")
+        logger.info("\n📋 Recording source playlists...")
         
         playlists = [
             {
@@ -281,46 +273,46 @@ class DatabaseInitializer:
             session.add(ytm_playlist)
         
         session.commit()
-        print(f"   ✅ Recorded {len(playlists)} source playlists")
+        logger.info(f"   ✅ Recorded {len(playlists)} source playlists")
     
     def run(self):
         """Initialize complete database"""
-        print("=" * 60)
-        print("Database Initialization")
-        print("=" * 60)
+        logger.info("=" * 60)
+        logger.info("Database Initialization (Improved)")
+        logger.info("=" * 60)
         
         # Check required files exist
-        print("\n📂 Checking data files...")
+        logger.info("\n📂 Checking data files...")
         required_files = [self.songs_file, self.albums_file]
         for filepath in required_files:
             if not filepath.exists():
-                print(f"   ❌ Missing: {filepath}")
-                print(f"\n   Run data collection scripts first:")
-                print(f"     python scripts/01_fetch_ytm_playlists.py")
-                print(f"     python scripts/02_deduplicate_and_classify.py")
-                print(f"     python scripts/03_extract_album_info.py")
+                logger.error(f"   ❌ Missing: {filepath}")
+                logger.error(f"\n   Run data collection scripts first:")
+                logger.error(f"     python scripts/01_fetch_ytm_playlists.py")
+                logger.error(f"     python scripts/02_deduplicate_IMPROVED.py")
+                logger.error(f"     python scripts/03_extract_album_info.py")
                 return
-            print(f"   ✅ Found: {filepath}")
+            logger.info(f"   ✅ Found: {filepath}")
         
         # Load user preferences (optional)
-        print("\n📊 Loading user preferences...")
+        logger.info("\n📊 Loading user preferences...")
         preferences = self.load_user_preferences()
         
         # Load data
-        print("\n📥 Loading CSV data...")
+        logger.info("\n📥 Loading CSV data...")
         songs_df = pd.read_csv(self.songs_file)
         albums_df = pd.read_csv(self.albums_file)
-        print(f"   ✅ Songs: {len(songs_df)}")
-        print(f"   ✅ Albums: {len(albums_df)}")
+        logger.info(f"   ✅ Songs: {len(songs_df)}")
+        logger.info(f"   ✅ Albums: {len(albums_df)}")
         
         # Create database
-        print(f"\n🗄️  Creating database: {Config.DATABASE_URL}")
+        logger.info(f"\n🗄️  Creating database: {Config.DATABASE_URL}")
         engine = create_database(Config.DATABASE_URL)
         session = get_session(engine)
         
         try:
             # Initialize parameters
-            print("\n⚙️  Initializing Glicko-2 parameters...")
+            logger.info("\n⚙️  Initializing Glicko-2 parameters...")
             initialize_parameters(session)
             
             # Insert data
@@ -329,50 +321,50 @@ class DatabaseInitializer:
             self.insert_source_playlists(session)
             
             # Summary
-            print("\n" + "=" * 60)
-            print("✅ Database Initialization Complete!")
-            print("=" * 60)
+            logger.info("\n" + "=" * 60)
+            logger.info("✅ Database Initialization Complete!")
+            logger.info("=" * 60)
             
             # Stats
             total_songs = session.query(Song).count()
             total_albums = session.query(Album).count()
             total_tracks = session.query(AlbumTrack).count()
             
-            print(f"\n📊 Database contents:")
-            print(f"   Songs: {total_songs}")
-            print(f"   Albums: {total_albums}")
-            print(f"   Album tracks: {total_tracks}")
+            logger.info(f"\n📊 Database contents:")
+            logger.info(f"   Songs: {total_songs}")
+            logger.info(f"   Albums: {total_albums}")
+            logger.info(f"   Album tracks: {total_tracks}")
             
             # Rating distribution
-            print(f"\n🎵 Song breakdown:")
+            logger.info(f"\n🎵 Song breakdown:")
             originals = session.query(Song).filter_by(is_original=True).count()
             variants = session.query(Song).filter_by(is_original=False).count()
-            print(f"   Original songs: {originals}")
-            print(f"   Variants: {variants}")
+            logger.info(f"   Original songs: {originals}")
+            logger.info(f"   Variants: {variants}")
             
-            print(f"\n🌍 Language distribution:")
+            logger.info(f"\n🌍 Language distribution:")
             for lang in ['korean', 'japanese', 'english', 'instrumental']:
                 count = session.query(Song).filter_by(language=lang).count()
                 if count > 0:
-                    print(f"   {lang.capitalize()}: {count}")
+                    logger.info(f"   {lang.capitalize()}: {count}")
             
-            print(f"\n⭐ Your personalized ratings:")
+            logger.info(f"\n⭐ Your personalized ratings:")
             liked = session.query(Song).filter_by(is_liked=True).count()
             familiar = session.query(Song).filter_by(is_familiar=True).count()
-            print(f"   Liked songs (1600 Elo): {liked}")
-            print(f"   Familiar songs (1550 Elo): {familiar}")
+            logger.info(f"   Liked songs (1600 Elo): {liked}")
+            logger.info(f"   Familiar songs (1550 Elo): {familiar}")
             
-            print("\n" + "=" * 60)
-            print("🚀 Next steps:")
-            print("=" * 60)
-            print("\n1. Start the app:")
-            print("     streamlit run streamlit_app/app.py")
-            print("\n2. Begin ranking in Duel Mode")
-            print("3. Watch your ratings evolve!")
-            print("\n" + "=" * 60)
+            logger.info("\n" + "=" * 60)
+            logger.info("🚀 Next steps:")
+            logger.info("=" * 60)
+            logger.info("\n1. Start the app:")
+            logger.info("     streamlit run streamlit_app/Home.py")
+            logger.info("\n2. Begin ranking in Duel Mode")
+            logger.info("3. Watch your ratings evolve!")
+            logger.info("\n" + "=" * 60)
             
         except Exception as e:
-            print(f"\n❌ Error during initialization: {e}")
+            logger.error(f"\n❌ Error during initialization: {e}")
             session.rollback()
             raise
         
@@ -384,7 +376,7 @@ class DatabaseInitializer:
 
 def main():
     """Main entry point"""
-    initializer = DatabaseInitializer()
+    initializer = ImprovedDatabaseInitializer()
     initializer.run()
 
 

@@ -1,347 +1,345 @@
 """
-De-duplicate songs and classify variants
+Improved De-duplication and Classification
 
-Handles:
-- Same song appearing multiple times (keep one)
-- Variants (Japanese versions, remixes, etc.) - link to originals
-- Language detection
-- Variant type classification
+Key improvements:
+1. KEEPS parentheses in display titles
+2. Better variant detection (album-aware)
+3. True deduplication (same video_id = same song)
+4. Member tags preserved (DAHYUN, MINA, etc.)
 """
 
 import pandas as pd
 import re
-from difflib import SequenceMatcher
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, List, Tuple
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
-class SongDeduplicator:
-    """De-duplicate songs and classify variants"""
+class ImprovedSongProcessor:
+    """Process songs with proper variant detection and deduplication"""
     
     def __init__(self):
-        # Variant detection patterns
-        self.variant_patterns = {
-            'japanese_version': [
-                r'japanese ver\.?',
-                r'japan ver\.?',
-                r'jpn ver\.?',
-                r'日本語',
-                r'\(jp\)',
-                r'\(japanese\)',
-            ],
-            'english_version': [
-                r'english ver\.?',
-                r'eng ver\.?',
-                r'\(en\)',
-                r'\(english\)',
-            ],
-            'instrumental': [
-                r'instrumental',
-                r'inst\.?\s*$',
-                r'\(inst\)',
-            ],
-            'remix': [
-                r'remix',
-                r'remixed by',
-                r'mix\)',
-                r'edit\)',
-            ],
-            'live': [
-                r'\blive\b',
-                r'concert',
-                r'tour\s+ver',
-            ],
-            'acoustic': [
-                r'acoustic',
-                r'unplugged',
-            ],
-            'sped_up': [
-                r'sped\s*up',
-                r'speed\s*up',
-                r'nightcore',
-                r'fast',
-            ],
-            'slowed': [
-                r'slowed',
-                r'reverb',
-                r'slow',
-            ],
-            'radio_edit': [
-                r'radio\s+edit',
-                r'radio\s+ver',
-            ],
+        # Remix/mix markers (these indicate variants)
+        self.remix_markers = [
+            'house', 'moombahton', 'remix', 'mix', 'version 1.0', 'version 2.0',
+            'sped up', 'slowed', 'acoustic', 'radio edit', 'extended',
+            'instrumental', 'inst'
+        ]
+        
+        # Language markers (these indicate language variants)
+        self.language_markers = {
+            'japanese': ['japanese ver', 'japan ver', 'jpn ver', '日本語', 'jp'],
+            'english': ['english ver', 'eng ver', 'en'],
+            'korean': ['korean ver', 'kor ver', 'kr']
         }
         
-        # Markers to remove when extracting canonical name
-        self.remove_patterns = [
-            r'\([^)]*\)',  # Anything in parentheses
-            r'\[[^\]]*\]',  # Anything in brackets
-            r'-\s*\d{4}',   # Year suffix like "- 2024"
-            r'official\s+audio',
-            r'official\s+video',
-            r'm/?v',
+        # These are informational, NOT variant markers
+        self.info_markers = [
+            'dahyun', 'mina', 'nayeon', 'jihyo', 'sana', 'momo', 
+            'chaeyoung', 'tzuyu', 'jeongyeon',  # Member names
+            'rewind', 'heart shaker',  # English subtitles
         ]
     
-    def detect_variant_type(self, title: str) -> Optional[str]:
+    def extract_parenthetical_content(self, title: str) -> List[Tuple[str, str]]:
         """
-        Detect if song is a variant and what type
+        Extract content from parentheses
         
-        Args:
-            title: Song title
+        Returns: List of (original, normalized) tuples
+        Example: "CHESS (DAHYUN)" → [("DAHYUN", "dahyun")]
+        """
+        pattern = r'\(([^)]+)\)'
+        matches = re.findall(pattern, title)
+        return [(m, m.lower().strip()) for m in matches]
+    
+    def classify_parenthetical(self, content: str, album: str) -> Optional[str]:
+        """
+        Classify what a parenthetical means
         
         Returns:
-            Variant type or None if original
+        - 'remix': It's a remix/mix variant
+        - 'language': It's a language variant  
+        - 'feature': It's a feature credit (keep as original)
+        - 'info': It's informational (keep in title)
+        - None: Unknown/ambiguous
         """
-        title_lower = title.lower()
+        content_lower = content.lower()
         
-        for variant_type, patterns in self.variant_patterns.items():
-            for pattern in patterns:
-                if re.search(pattern, title_lower):
-                    return variant_type
+        # Check remix markers
+        for marker in self.remix_markers:
+            if marker in content_lower:
+                return 'remix'
+        
+        # Check language markers
+        for lang, markers in self.language_markers.items():
+            for marker in markers:
+                if marker in content_lower:
+                    return 'language'
+        
+        # Feature credit
+        if 'feat' in content_lower or 'ft' in content_lower:
+            return 'feature'
+        
+        # Info markers (member names, subtitles)
+        for marker in self.info_markers:
+            if marker in content_lower:
+                return 'info'
+        
+        # Check album context for remixes
+        # e.g., if album is "Strategy 2.0", treat as remix album
+        if '2.0' in album or 'remix' in album.lower():
+            # Likely a remix even if not explicitly marked
+            return 'remix'
         
         return None
     
-    def extract_canonical_name(self, title: str) -> str:
+    def extract_base_title(self, title: str) -> str:
         """
-        Extract base song name without variant info
+        Extract base title for grouping (removes only variant markers)
         
-        Args:
-            title: Full song title
-        
-        Returns:
-            Canonical name (e.g., "Like OOH-AHH")
+        Example:
+        - "Strategy (House)" → "Strategy"
+        - "CHESS (DAHYUN)" → "CHESS (DAHYUN)"  ← Keeps member name
+        - "알고 싶지 않아 (REWIND)" → "알고 싶지 않아 (REWIND)"  ← Keeps subtitle
         """
-        canonical = title
+        base_title = title
         
-        # Remove variant markers
-        for patterns in self.variant_patterns.values():
-            for pattern in patterns:
-                canonical = re.sub(pattern, '', canonical, flags=re.IGNORECASE)
+        # Extract parentheticals
+        parens = self.extract_parenthetical_content(title)
         
-        # Remove common suffixes/prefixes
-        for pattern in self.remove_patterns:
-            canonical = re.sub(pattern, '', canonical, flags=re.IGNORECASE)
+        # Remove only remix/language variant markers
+        for original, normalized in parens:
+            classification = self.classify_parenthetical(normalized, "")
+            
+            if classification in ['remix', 'language']:
+                # Remove this parenthetical
+                base_title = base_title.replace(f"({original})", "").strip()
         
-        # Clean up whitespace
-        canonical = re.sub(r'\s+', ' ', canonical).strip()
+        # Clean up extra spaces
+        base_title = re.sub(r'\s+', ' ', base_title).strip()
         
-        # Remove trailing dashes or commas
-        canonical = re.sub(r'[\s\-,]+$', '', canonical)
-        
-        return canonical
+        return base_title
     
-    def similarity(self, a: str, b: str) -> float:
-        """Calculate string similarity (0.0 to 1.0)"""
-        return SequenceMatcher(None, a.lower(), b.lower()).ratio()
+    def detect_variant_type(self, title: str, album: str, language: str) -> Optional[str]:
+        """
+        Detect variant type from title and album context
+        
+        Returns: variant_type or None if original
+        """
+        title_lower = title.lower()
+        album_lower = album.lower() if pd.notna(album) else ""
+        
+        # Extract parentheticals
+        parens = self.extract_parenthetical_content(title)
+        
+        for original, normalized in parens:
+            classification = self.classify_parenthetical(normalized, album)
+            
+            if classification == 'remix':
+                # Determine specific remix type
+                if 'house' in normalized:
+                    return 'remix_house'
+                elif 'moombahton' in normalized:
+                    return 'remix_moombahton'
+                elif 'sped up' in normalized:
+                    return 'sped_up'
+                elif 'slowed' in normalized:
+                    return 'slowed'
+                elif 'acoustic' in normalized:
+                    return 'acoustic'
+                elif 'inst' in normalized:
+                    return 'instrumental'
+                else:
+                    return 'remix'
+            
+            elif classification == 'language':
+                # Determine language variant
+                for lang, markers in self.language_markers.items():
+                    for marker in markers:
+                        if marker in normalized:
+                            return f'{lang}_version'
+        
+        # Check album context
+        if '2.0' in album or 'remix' in album_lower:
+            if 'instrumental' not in title_lower:
+                return 'remix'
+        
+        return None
     
-    def detect_language(self, title: str, album: str, artists: str) -> str:
+    def detect_language(self, title: str, album: str, artist: str) -> str:
         """
         Detect song language
         
-        Args:
-            title: Song title
-            album: Album name
-            artists: Artist names
-        
-        Returns:
-            Language: korean, japanese, english, or instrumental
+        Priority:
+        1. Explicit language markers in title
+        2. Album language markers
+        3. Default to Korean for TWICE
         """
         title_lower = title.lower()
-        album_lower = album.lower() if pd.notna(album) else ''
+        album_lower = album.lower() if pd.notna(album) else ""
         
-        # Instrumental
-        if re.search(r'instrumental|inst\.?\s*$|\(inst\)', title_lower):
+        # Check for instrumental
+        if 'inst' in title_lower or 'instrumental' in title_lower:
             return 'instrumental'
         
-        # Japanese - check title markers
-        if re.search(r'japanese ver|japan ver|jpn ver|日本語|\(jp\)', title_lower):
+        # Check explicit language markers
+        parens = self.extract_parenthetical_content(title)
+        for original, normalized in parens:
+            for lang, markers in self.language_markers.items():
+                for marker in markers:
+                    if marker in normalized:
+                        return lang
+        
+        # Check album markers
+        if 'japanese' in album_lower or 'japan' in album_lower or '#twice' in album_lower:
             return 'japanese'
-        
-        # Japanese - check album
-        japanese_albums = ['#twice', 'bdz', '&twice', 'candy pop', 'wake me up', 
-                          'one more time', 'brand new girl', '#twice2', '#twice3',
-                          '#twice4', 'breakthrough', 'celebrate', 'doughnut', 'perfect world']
-        if any(jp_album in album_lower for jp_album in japanese_albums):
-            # But not if it's explicitly marked as another language
-            if 'ver' not in title_lower:
-                return 'japanese'
-        
-        # English - check title markers
-        if re.search(r'english ver|eng ver|\(en\)', title_lower):
+        elif 'english' in album_lower:
             return 'english'
         
-        # English - check album
-        english_albums = ['the feels', 'moonlight sunrise', 'strategy', 'i got you']
-        if album_lower in english_albums:
-            if 'ver' not in title_lower:
-                return 'english'
+        # Default for TWICE
+        if 'twice' in artist.lower():
+            return 'korean'
         
-        # Default to Korean
         return 'korean'
     
-    def group_duplicates(self, df: pd.DataFrame) -> pd.DataFrame:
+    def create_canonical_name(self, title: str, album: str) -> str:
         """
-        Group songs that are duplicates or variants
+        Create canonical name (keeps important info, removes variants)
         
-        Strategy:
-        - Same canonical_name + artists = same song (keep one)
-        - Different variant_type = separate songs (link as variants)
-        
-        Args:
-            df: DataFrame with raw tracks
-        
-        Returns:
-            De-duplicated DataFrame with variant links
+        This is used for grouping, NOT for display
         """
-        # Add canonical name and variant detection
-        df['canonical_name'] = df['title'].apply(self.extract_canonical_name)
-        df['variant_type'] = df['title'].apply(self.detect_variant_type)
-        df['language'] = df.apply(
-            lambda row: self.detect_language(
-                row['title'],
-                row.get('album', ''),
-                row.get('artists', '')
-            ),
-            axis=1
-        )
+        # Get base title (removes variant markers)
+        canonical = self.extract_base_title(title)
         
-        # Mark originals
-        df['is_original'] = df['variant_type'].isna()
+        # Normalize spaces and punctuation
+        canonical = re.sub(r'\s+', ' ', canonical)
+        canonical = canonical.strip()
         
-        # Group by canonical name + artists
-        grouped = df.groupby(['canonical_name', 'artists'])
-        
-        deduplicated = []
-        
-        for (canonical, artists), group in grouped:
-            # Sort: originals first, then by playlist order
-            group = group.sort_values(
-                by=['is_original', 'position_in_playlist'],
-                ascending=[False, True]
-            )
-            
-            if len(group) == 1:
-                # Single occurrence - keep as is
-                song = group.iloc[0].to_dict()
-                song['duplicate_count'] = 1
-                song['original_video_id'] = None
-                deduplicated.append(song)
-            
-            else:
-                # Multiple occurrences
-                # Find the original (first non-variant)
-                originals = group[group['is_original'] == True]
-                
-                if len(originals) > 0:
-                    # Have an original - use it as reference
-                    original = originals.iloc[0]
-                    original_video_id = original['video_id']
-                else:
-                    # No clear original - use first one
-                    original = group.iloc[0]
-                    original_video_id = original['video_id']
-                
-                # Process all songs in group
-                for idx, row in group.iterrows():
-                    song = row.to_dict()
-                    song['duplicate_count'] = len(group)
-                    
-                    # Link variants to original
-                    if song['video_id'] == original_video_id:
-                        song['original_video_id'] = None  # This IS the original
-                    else:
-                        song['original_video_id'] = original_video_id
-                    
-                    deduplicated.append(song)
-        
-        result_df = pd.DataFrame(deduplicated)
-        
-        # Clean up duplicates with same video_id (keep first occurrence)
-        result_df = result_df.drop_duplicates(subset=['video_id'], keep='first')
-        
-        return result_df
+        return canonical
     
-    def run(self, input_file: str = 'data/ytm_raw_tracks.csv', output_dir: str = 'data') -> pd.DataFrame:
+    def process_songs(self, input_file: Path, output_file: Path):
         """
-        De-duplicate and classify all songs
+        Process songs from raw YTM data
         
-        Args:
-            input_file: Path to raw tracks CSV
-            output_dir: Directory for output files
-        
-        Returns:
-            De-duplicated DataFrame
+        Key changes:
+        1. Keeps full titles (display_title)
+        2. Creates canonical_name for grouping
+        3. Detects variants properly
+        4. Preserves all metadata
         """
-        print("=" * 60)
-        print("Song De-duplicator & Classifier")
-        print("=" * 60)
+        logger.info(f"Loading raw tracks from {input_file}")
+        df = pd.read_csv(input_file)
         
-        # Load raw data
-        try:
-            df = pd.read_csv(input_file)
-            print(f"\n✅ Loaded {len(df)} raw tracks from: {input_file}")
-        except FileNotFoundError:
-            print(f"\n❌ Error: File not found: {input_file}")
-            print("    Run script 01 first: python scripts/01_fetch_ytm_playlists.py")
-            return pd.DataFrame()
+        logger.info(f"Processing {len(df)} tracks...")
         
-        # De-duplicate
-        print("\n🔍 De-duplicating and classifying...")
-        df_dedup = self.group_duplicates(df)
+        # Fill NaN albums with empty string
+        df['album'] = df['album'].fillna('')
         
-        # Statistics
-        originals = df_dedup[df_dedup['is_original'] == True]
-        variants = df_dedup[df_dedup['is_original'] == False]
+        logger.info(f"Processing {len(df)} tracks...")
         
-        print(f"\n{'='*60}")
-        print(f"Results:")
-        print(f"  Raw tracks: {len(df)}")
-        print(f"  Unique songs: {len(df_dedup)}")
-        print(f"  └─ Original songs: {len(originals)}")
-        print(f"  └─ Variants: {len(variants)}")
+        # Add new columns
+        df['display_title'] = df['title']  # Keep original title
+        df['canonical_name'] = ''
+        df['variant_type'] = None
+        df['is_original'] = True
+        df['language'] = 'korean'
+        df['original_video_id'] = None
         
-        # Language breakdown
-        if 'language' in df_dedup.columns:
-            print(f"\n  Language distribution:")
-            for lang, count in df_dedup['language'].value_counts().items():
-                print(f"    {lang}: {count}")
+        # Process each song
+        for idx, row in df.iterrows():
+            title = row['title']
+            album = row.get('album', '')
+            artist = row.get('artists', 'TWICE')
+            
+            # Create canonical name (for grouping)
+            canonical = self.create_canonical_name(title, album)
+            df.at[idx, 'canonical_name'] = canonical
+            
+            # Detect variant type
+            variant_type = self.detect_variant_type(title, album, row.get('language', 'korean'))
+            df.at[idx, 'variant_type'] = variant_type
+            df.at[idx, 'is_original'] = (variant_type is None)
+            
+            # Detect language
+            language = self.detect_language(title, album, artist)
+            df.at[idx, 'language'] = language
         
-        # Variant breakdown
-        if len(variants) > 0 and 'variant_type' in variants.columns:
-            print(f"\n  Variant types:")
-            for vtype, count in variants['variant_type'].value_counts().items():
-                if pd.notna(vtype):
-                    print(f"    {vtype}: {count}")
+        # Group by video_id (same video_id = exact same song)
+        logger.info("Removing exact duplicates (same video_id)...")
+        df_unique = df.drop_duplicates(subset=['video_id'], keep='first')
         
-        print(f"{'='*60}")
+        logger.info(f"Removed {len(df) - len(df_unique)} exact duplicates")
+        
+        # Now link variants to originals
+        logger.info("Linking variants to originals...")
+        
+        # Group by canonical_name + artists
+        groups = df_unique.groupby(['canonical_name', 'artists'])
+        
+        variants_linked = 0
+        for (canonical, artists), group in groups:
+            if len(group) == 1:
+                continue
+            
+            # Find the original (no variant_type)
+            originals = group[group['is_original'] == True]
+            
+            if len(originals) == 0:
+                # No clear original, pick first one
+                original_id = group.iloc[0]['video_id']
+            elif len(originals) == 1:
+                original_id = originals.iloc[0]['video_id']
+            else:
+                # Multiple originals, pick the one from standard album (not remix album)
+                standard_albums = originals[~originals['album'].str.contains('2.0|Remix', case=False, na=False)]
+                if len(standard_albums) > 0:
+                    original_id = standard_albums.iloc[0]['video_id']
+                else:
+                    original_id = originals.iloc[0]['video_id']
+            
+            # Link variants to original
+            for idx, variant in group[group['is_original'] == False].iterrows():
+                df_unique.at[idx, 'original_video_id'] = original_id
+                variants_linked += 1
+        
+        logger.info(f"Linked {variants_linked} variants to originals")
+        
+        # Summary statistics
+        logger.info("\n=== Processing Summary ===")
+        logger.info(f"Total unique songs: {len(df_unique)}")
+        logger.info(f"  Originals: {df_unique['is_original'].sum()}")
+        logger.info(f"  Variants: {(~df_unique['is_original']).sum()}")
+        logger.info(f"\nLanguage breakdown:")
+        for lang, count in df_unique['language'].value_counts().items():
+            logger.info(f"  {lang}: {count}")
+        logger.info(f"\nVariant types:")
+        for vtype, count in df_unique['variant_type'].value_counts().items():
+            if pd.notna(vtype):
+                logger.info(f"  {vtype}: {count}")
         
         # Save
-        Path(output_dir).mkdir(parents=True, exist_ok=True)
-        output_file = Path(output_dir) / 'ytm_deduplicated.csv'
-        df_dedup.to_csv(output_file, index=False)
-        print(f"\n💾 Saved de-duplicated data to: {output_file}")
+        logger.info(f"\nSaving to {output_file}")
+        df_unique.to_csv(output_file, index=False)
+        logger.info("✅ Done!")
         
-        # Show examples
-        if len(variants) > 0:
-            print("\n📋 Example variants:")
-            variant_examples = variants.groupby('variant_type').first()
-            for vtype, row in variant_examples.iterrows():
-                if pd.notna(vtype):
-                    print(f"  {vtype}:")
-                    print(f"    Title: {row['title']}")
-                    print(f"    Original: {row['canonical_name']}")
-        
-        print("\n✅ De-duplication complete!")
-        print("\nNext step:")
-        print("  python scripts/03_extract_album_info.py")
-        
-        return df_dedup
+        return df_unique
 
 
 def main():
     """Main entry point"""
-    dedup = SongDeduplicator()
-    df = dedup.run()
+    processor = ImprovedSongProcessor()
+    
+    input_file = Path('data/ytm_raw_tracks.csv')
+    output_file = Path('data/ytm_deduplicated.csv')
+    
+    if not input_file.exists():
+        print(f"❌ Input file not found: {input_file}")
+        print("   Run script 01 first: python scripts/01_fetch_ytm_playlists.py")
+        return
+    
+    processor.process_songs(input_file, output_file)
 
 
 if __name__ == '__main__':

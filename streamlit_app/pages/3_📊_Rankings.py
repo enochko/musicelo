@@ -14,6 +14,7 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from core.database.operations import DatabaseOperations
+from core.utils.security import escape_html, safe_youtube_embed
 
 st.set_page_config(
     page_title="Rankings - MusicElo",
@@ -247,12 +248,12 @@ else:
                 with col2:
                     # Song title with YouTube link
                     if song.youtube_music_url:
-                        st.markdown(f"### [{song.canonical_name}]({song.youtube_music_url})")
+                        st.markdown(f"### [{escape_html(song.canonical_name)}]({song.youtube_music_url})")
                     else:
-                        st.markdown(f"### {song.canonical_name}")
+                        st.markdown(f"### {escape_html(song.canonical_name)}")
                     
                     # Artist on its own line
-                    st.markdown(f"*{song.artist_name}*")
+                    st.markdown(f"*{escape_html(song.artist_name)}*")
                     
                     # Metadata in caption row (aligned with ±RD and Win%)
                     metadata_parts = [f"🌍 {song.language.capitalize()}", f"📁 {song.category}"]
@@ -301,19 +302,19 @@ with st.expander("📈 Detailed Statistics"):
         st.subheader("🏆 Top 10 Songs")
         top_10 = songs[:10]
         for i, song in enumerate(top_10, 1):
-            st.markdown(f"{i}. **{song.canonical_name}** - {song.rating:.0f} (±{song.rating_deviation:.0f})")
+            st.markdown(f"{i}. **{escape_html(song.canonical_name)}** - {song.rating:.0f} (±{song.rating_deviation:.0f})")
         
         # Most active
         st.subheader("🎯 Most Compared Songs")
         most_active = sorted(songs, key=lambda s: s.games_played, reverse=True)[:10]
         for i, song in enumerate(most_active, 1):
-            st.markdown(f"{i}. **{song.canonical_name}** - {song.games_played} games")
+            st.markdown(f"{i}. **{escape_html(song.canonical_name)}** - {song.games_played} games")
         
         # Highest confidence (lowest RD)
         st.subheader("✅ Highest Confidence Ratings")
         highest_conf = sorted(songs, key=lambda s: s.rating_deviation)[:10]
         for i, song in enumerate(highest_conf, 1):
-            st.markdown(f"{i}. **{song.canonical_name}** - ±{song.rating_deviation:.0f}")
+            st.markdown(f"{i}. **{escape_html(song.canonical_name)}** - ±{song.rating_deviation:.0f}")
 
 # Help section
 with st.expander("ℹ️ Understanding the Rankings"):
