@@ -3,7 +3,7 @@
 **Project:** MusicElo v3.0 — Personal Music Ranking and Discovery System  
 **Document:** Test Plan  
 **Stage:** Design Foundation  
-**Version:** 0.1 (draft — pre-implementation)  
+**Version:** 0.2 (draft — pre-implementation)  
 **Author:** Enoch Ko  
 **Date:** February 2026
 
@@ -31,8 +31,8 @@ Code is not equally critical. Test rigour matches risk and expected lifespan.
 | Tier | Code Type | Approach | When Written |
 |---|---|---|---|
 | 1 — Durable | Glicko-2 engine, comparison recording, undo/replay, canonical alias logic | Full unit + integration tests, written before implementation (TDD) | Before feature branch |
-| 2 — Integration | API enrichment pipeline, cross-platform matching, offline queue sync | Integration tests against test DB, written alongside implementation | During feature branch |
-| 3 — Smoke | Import scripts, playlist export, snapshot capture | Lightweight end-to-end checks | After implementation |
+| 2 — Integration | API enrichment pipeline, platform import scripts, cross-platform matching, offline queue sync | Integration tests against test DB, written alongside implementation | During feature branch |
+| 3 — Smoke | Playlist export, snapshot capture | Lightweight end-to-end checks | After implementation |
 | Manual only | CarPlay one-handed interaction, now-playing latency, mobile comparison timing | Documented manual test checklist | Pre-release |
 
 ---
@@ -171,20 +171,38 @@ Tests in `tests/integration/test_snapshots.py`.
 | T-141 | Snapshot is point-in-time (not affected by later comparisons) | Take snapshot; submit comparison; query snapshot | Snapshot values unchanged |
 | T-142 | Current vs snapshot delta queryable | Take snapshot; change rankings; query delta | Returns rank position change for each song |
 
+
+### 2.5 Platform Import Scripts (`songs/`)
+
+Import scripts run repeatedly — on initial library setup and whenever new songs are released
+(e.g. a new TWICE comeback, or adding a new artist). Dedup failures or metadata errors on
+repeat imports are silent and hard to detect, so these need integration coverage, not just
+smoke tests.
+
+Tests in .
+
+| # | Test | Description | Pass Condition |
+|---|---|---|---|
+| T-150 | Spotify import creates song, album, artist rows | Import one Spotify track | Rows in , , , ,  all created |
+| T-151 | Apple Music import populates ISRC | Import catalogue song from Apple Music |  populated from  |
+| T-152 | YouTube Music import attempts heuristic match | Import track with no ISRC | Heuristic matching (title + artist + duration) attempted; result recorded in  |
+| T-153 | Re-import of existing ISRC does not duplicate song | Import song; import same ISRC again | Single  row;  unchanged; metadata refreshed |
+| T-154 | Re-import of new release adds song correctly | Library has 299 songs; import new release | New  row created;  initialised at defaults; existing songs unaffected |
+| T-155 | Artist credit mismatch resolved on import | Import TWICE solo track (individual member credit on MusicBrainz, group credit on Spotify) |  contains both TWICE (primary) and member (performer); no duplicate artist rows |
+| T-156 | Import failure on one song does not abort batch | Batch of 10 songs; one has malformed data | 9 songs imported; failure logged to ; no partial row left in DB |
+| T-157 | Import is idempotent | Import same playlist twice | Row counts identical after second import; no duplicates |
+
 ---
 
 ## Tier 3 — Smoke Tests (Write After Implementation)
 
 | # | Test | Description |
 |---|---|---|
-| T-200 | Spotify import end-to-end | Import a playlist; confirm songs, platform IDs, and metadata rows created |
-| T-201 | Apple Music import end-to-end | Import library; confirm ISRC populated for catalogue songs |
-| T-202 | YouTube Music import end-to-end | Import liked songs; confirm heuristic matching attempted |
-| T-203 | Ranked playlist export | Generate top-50 playlist; confirm correct songs in rating order |
-| T-204 | Category-filtered export | Filter Korean title tracks; confirm only matching songs included |
-| T-205 | Glicko-2 parameter change history | Update τ; confirm old parameter set closed, new set created |
-| T-206 | Weekly snapshot trigger | Simulate week boundary; confirm snapshot created |
-| T-207 | Playlist rule auto-update | Song crosses threshold; confirm playlist membership updated |
+| T-200 | Ranked playlist export | Generate top-50 playlist; confirm correct songs in rating order |
+| T-201 | Category-filtered export | Filter Korean title tracks; confirm only matching songs included |
+| T-202 | Glicko-2 parameter change history | Update τ; confirm old parameter set closed, new set created |
+| T-203 | Weekly snapshot trigger | Simulate week boundary; confirm snapshot created |
+| T-204 | Playlist rule auto-update | Song crosses threshold; confirm playlist membership updated |
 
 ---
 
@@ -228,4 +246,5 @@ calls run locally only, against actual endpoints, using spike test credentials.
 
 | Date | Version | Changes | Author |
 |---|---|---|---|
+| 2026-02-21 | 0.2 | Elevated platform import scripts from Tier 3 to Tier 2; added §2.5 import integration tests (T-150 to T-157); removed import smoke tests T-200 to T-202 (superseded); renumbered remaining Tier 3 tests | Enoch Ko |
 | 2026-02 | 0.1 | Initial draft, pre-implementation | Enoch Ko |
