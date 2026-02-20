@@ -27,6 +27,7 @@ Functional and non-functional requirements, API research, and spike validation p
 - **[prd-review-notes.md](./02-requirements/prd-review-notes.md)** — Decision log documenting 10 conflicts resolved between PRD v0.1, API research, and schema design during v0.2 revision
 - **[api-research-report.md](./02-requirements/api-research-report.md)** — Comprehensive survey of 10 music metadata APIs (Spotify, YouTube Music, Apple Music, MusicBrainz, Deezer, Last.fm, AcousticBrainz, Musixmatch, ReccoBeats, Essentia/librosa). Covers access restrictions, ISRC availability, artist credit mismatches, and audio feature alternatives post-Spotify restrictions
 - **[api-fields-catalogue.json](./02-requirements/api-fields-catalogue.json)** — Machine-readable companion to the API research report. Field listings per service, audio feature availability matrix, ISRC availability, and artist credit matching strategy
+- **[adr/](./03-design/adr/)** — Architectural Decision Records (ADR-001 to ADR-006). Documents the reasoning behind key architectural choices using MADR format
 - **[spikes/spike-validation-plan.md](./02-requirements/spikes/spike-validation-plan.md)** — 10 spike tests (S-01 to S-10) validating critical API and platform assumptions before implementation. Covers Spotify Dev Mode restrictions, Deezer ISRC, MusicBrainz K-pop coverage, iOS MPNowPlayingInfoCenter, and more
 - **[spikes/spike-github-guide.md](./02-requirements/spikes/spike-github-guide.md)** — Git workflow guide for spike branches: naming conventions, branch lifecycle, result documentation, and PR process
 
