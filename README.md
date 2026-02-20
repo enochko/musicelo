@@ -12,7 +12,7 @@ MusicElo applies proven rating systems from competitive domains (chess, sports) 
 
 **Current Version:** v3.0 (in development)  
 **Branch:** `v3-development`  
-**Stage:** Discovery and Problem Definition ✓
+**Stage:** Design Foundation ✓ → Spike Validation (in progress)
 
 ### Version History
 
@@ -20,22 +20,18 @@ MusicElo applies proven rating systems from competitive domains (chess, sports) 
 - **v2.0** ([main branch](../../tree/main)) — Pivoted to YouTube Music; Glicko-2 implementation with localhost UI (completed)
   - ✅ Proved Glicko-2 ranking works
   - ❌ UX failure: pairwise comparison felt like "work"
-- **v3.0** (this branch) — Cross-platform with 90/10 passive/active design (in development)
-  - Returns to Spotify for metadata (API access reopened, albeit with [stricter Development Mode limits](https://developer.spotify.com/blog/2026-02-06-update-on-developer-access-and-platform-security))
-  - Retains YouTube Music for playback
-  - Cross-platform: Desktop + mobile
-  - 90% passive listening / 10% active comparison
+- **v3.0** (this branch) — Cross-platform companion app with 90/10 passive/active design (in development)
 
 ## Documentation
 
 Comprehensive product development documentation available in [`docs/`](./docs):
 
-- **[01-discovery/](./docs/01-discovery)** — Problem definition, user research, business case, stakeholder analysis
-- **02-requirements/** — Requirements specification (coming soon)
-- **03-design/** — Technical architecture, UX design, data models (coming soon)
+- **[01-discovery/](./docs/01-discovery)** — Problem definition, user research, business case, stakeholder analysis ✅
+- **[02-requirements/](./docs/02-requirements)** — PRD v0.2, API research, spike validation plan ✅
+- **[03-design/](./docs/03-design)** — Database schema, backend architecture, test plan, implementation plan ✅
 - **04-implementation/** — Implementation notes and decisions (coming soon)
 
-See [docs/README.md](./docs/README.md) for detailed navigation.
+See [docs/README.md](./docs/README.md) for detailed navigation and file descriptions.
 
 ## Problem Statement
 
@@ -51,45 +47,55 @@ See [docs/README.md](./docs/README.md) for detailed navigation.
 
 ## Technical Architecture (Planned)
 
+**Approach:** Companion app — monitors native streaming apps (Spotify, YouTube Music, Apple Music) rather than playing music itself. Solves iOS background playback limitations.
+
 **Platforms:**
 
-- Spotify: Primary metadata source (ISRC, better library organisation)
-- YouTube Music: Primary playback platform (YouTube Premium subscription)
-- MusicBrainz: Supplemental canonical identifiers
+- Deezer: Primary ISRC source (free, no auth required)
+- Apple Music: Primary library import + metadata (ISRC, structured genres)
+- Spotify: Secondary metadata source (Dev Mode restrictions apply as of Feb 2026)
+- MusicBrainz: Canonical identifiers, artist relationships, K-pop credit resolution
+- YouTube Music: Playback platform (YouTube Premium)
 
-**Cross-Platform:**
+**Stack:**
 
-- Desktop (macOS/web): Viewing rankings + listening/ranking
-- Mobile (iOS): Primary listening/ranking platform
+- Backend: Python / FastAPI / PostgreSQL (Supabase)
+- Mobile: Swift iOS companion app
+- Desktop: Web app (framework TBD pending spike S-10)
 
 **Algorithm:**
 
-- Glicko-2 for global ranking
-- Optional intra-playlist pools for promotion/relegation workflow
-- Monthly historical snapshots for evolution tracking
+- Glicko-2 for global ranking (immediate updates, no rating period batching)
+- Passive signals (skips, completions, replays) captured separately — never modify Glicko-2 scores
+- Canonical alias system: same song across albums shares one Glicko-2 record
+- Weekly snapshots (first 3 months), monthly thereafter
 
 ## Development Roadmap
 
-### Phase 1: Foundation (Weeks 1–6)
+### Current: Spike Validation
 
-- [ ] API integration (Spotify, YouTube Music, MusicBrainz)
-- [ ] Glicko-2 implementation with 5-level comparison system
-- [ ] Cross-platform prototype (desktop + mobile)
-- [ ] Canonical song identification and deduplication
+10 spike tests (S-01 to S-10) validating critical API and platform assumptions before implementation. See [spike-validation-plan.md](./docs/02-requirements/spikes/spike-validation-plan.md).
 
-### Phase 2: MVP (Months 2–4)
+### Phase 0–3: Foundation + Core (Next)
 
-- [ ] 90/10 passive/active input interface
-- [ ] Playlist generation with Spotify/YouTube Music export
-- [ ] Monthly historical snapshot system
-- [ ] Cross-platform feature parity
+- Repo setup, Alembic schema migration, FastAPI scaffold
+- Glicko-2 engine (pure functions, TDD)
+- Song library with CSV import and deduplication
+- Comparison recording with undo/replay
 
-### Phase 3: Polish (Months 5–6)
+### Phase 4–6: Integrations (Spike-gated)
 
-- [ ] Documentation and code cleanup
-- [ ] Portfolio case study
-- [ ] GitHub publication
-- [ ] Professional sharing (LinkedIn)
+- Metadata enrichment pipeline (Deezer, MusicBrainz, ReccoBeats, Last.fm)
+- iOS companion app with MPNowPlayingInfoCenter
+- Platform library import (Spotify, Apple Music, YouTube Music)
+
+### Phase 7–9: Rankings + Polish
+
+- Desktop rankings web app
+- Playlist export to platforms
+- Ranking snapshots, data export, release readiness
+
+See [implementation-plan.md](./docs/03-design/implementation-plan.md) for full phase breakdown.
 
 ## Portfolio Context
 
