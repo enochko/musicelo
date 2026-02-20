@@ -1,0 +1,270 @@
+---
+title: MusicElo v3.0 — Entity Relationship Diagram (PostgreSQL / Supabase)
+---
+erDiagram
+    %% ═══════════════════════════════════════════
+    %% APPLICATION LAYER — Core Library
+    %% ═══════════════════════════════════════════
+
+    artists {
+        uuid id PK
+        text name
+        text name_normalized
+        text sort_name
+        text artist_type "person | group"
+        text country "ISO 3166-1"
+        text disambiguation
+    }
+
+    artist_groups {
+        uuid id PK
+        uuid member_artist_id FK
+        uuid group_artist_id FK
+        date active_from
+        date active_until
+        text role "member | former_member | guest"
+    }
+
+    albums {
+        uuid id PK
+        text title
+        text album_type "album | single | ep | compilation"
+        text release_date
+        int total_tracks
+        text upc
+        text label
+    }
+
+    album_artists {
+        uuid album_id FK
+        uuid artist_id FK
+        int credit_order
+        text credited_as
+    }
+
+    songs {
+        uuid id PK
+        uuid canonical_id FK "self-FK NULL=canonical"
+        text title
+        uuid album_id FK
+        int track_number
+        int duration_ms
+        text isrc
+        text language "korean | japanese | english"
+        text track_type "title_track | b_side | ost | special"
+        boolean is_medley
+        text_arr performer_tags "actual performers"
+        text_arr custom_tags "emotional context"
+        jsonb audio_features "Spotify Apple seed data"
+        text visual_notes "TTT refs concert moments"
+        real merge_confidence
+    }
+
+    song_artists {
+        uuid song_id FK
+        uuid artist_id FK
+        int credit_order
+        text credit_role "primary | featured | remix | ..."
+        text credited_as
+    }
+
+    song_relationships {
+        uuid id PK
+        uuid song_a_id FK
+        uuid song_b_id FK
+        text relationship_type "translation | remix | live | ..."
+    }
+
+    %% ═══════════════════════════════════════════
+    %% APPLICATION LAYER — Glicko-2 System
+    %% ═══════════════════════════════════════════
+
+    glicko_ratings {
+        uuid id PK
+        uuid song_id FK "UNIQUE canonical only"
+        float8 rating
+        float8 rating_deviation
+        float8 volatility
+        int comparison_count
+        timestamptz last_compared_at
+    }
+
+    comparisons {
+        uuid id PK
+        uuid song_a_id FK "canonical ID"
+        uuid song_b_id FK "canonical ID"
+        float8 outcome
+        float8 song_a_rating_before
+        float8 song_a_rd_before
+        float8 song_a_volatility_before
+        float8 song_b_rating_before
+        float8 song_b_rd_before
+        float8 song_b_volatility_before
+        float8 song_a_rating_after
+        float8 song_b_rating_after
+        text source "mobile_passive | desktop_focused | ..."
+        jsonb context "device carplay focus location"
+        int response_time_ms
+        boolean is_undone
+    }
+
+    play_events {
+        uuid id PK
+        uuid song_id FK
+        timestamptz started_at
+        int duration_played_seconds
+        real play_percentage
+        boolean completed
+        boolean skipped
+        boolean replayed
+        text device_type "iphone | mac | carplay"
+        boolean carplay_active
+        text focus_mode
+        text location_zone
+        boolean workout_active
+        text playback_platform
+    }
+
+    ranking_snapshots {
+        uuid id PK
+        date snapshot_date
+        jsonb snapshot_data "full ranking array"
+    }
+
+    playlist_rules {
+        uuid id PK
+        text name
+        text rule_type
+        jsonb rule_definition
+        jsonb platform_playlist_ids
+        boolean auto_sync
+    }
+
+    glicko_parameters {
+        uuid id PK
+        float8 initial_rating
+        float8 initial_rd
+        float8 initial_volatility
+        float8 system_constant_tau
+        float8 outcome_strong
+        float8 outcome_slight
+        float8 outcome_equal
+        timestamptz active_from
+        timestamptz active_until
+    }
+
+    %% ═══════════════════════════════════════════
+    %% METADATA INFRASTRUCTURE LAYER
+    %% ═══════════════════════════════════════════
+
+    platform_song_ids {
+        uuid id PK
+        uuid song_id FK
+        text platform "spotify | deezer | apple | ..."
+        text platform_id
+        text platform_uri
+        text match_method
+        real match_confidence
+    }
+
+    platform_artist_ids {
+        uuid id PK
+        uuid artist_id FK
+        text platform
+        text platform_id
+    }
+
+    platform_album_ids {
+        uuid id PK
+        uuid album_id FK
+        text platform
+        text platform_id
+    }
+
+    source_cache_tracks {
+        uuid id PK
+        text platform
+        text platform_id
+        jsonb response_json "full API response"
+        timestamptz fetched_at
+    }
+
+    source_cache_albums {
+        uuid id PK
+        text platform
+        text platform_id
+        jsonb response_json
+        timestamptz fetched_at
+    }
+
+    source_cache_artists {
+        uuid id PK
+        text platform
+        text platform_id
+        jsonb response_json
+        timestamptz fetched_at
+    }
+
+    audio_features {
+        uuid song_id PK
+        real bpm
+        text bpm_source "deezer | reccobeats | acousticbrainz"
+        int key_pitch
+        int mode
+        real energy
+        real valence
+        real danceability
+        real acousticness
+        real instrumentalness
+        real loudness_db
+        text primary_source
+    }
+
+    song_tags {
+        uuid id PK
+        uuid song_id FK
+        text tag_name
+        text tag_category "genre | mood | style"
+        real weight
+        text source "lastfm | musicbrainz | apple | user"
+    }
+
+    merge_log {
+        uuid id PK
+        text entity_type "song | artist | album"
+        uuid entity_id
+        text action "created | merged | split | updated"
+        text source_platform
+        jsonb details
+    }
+
+    %% ═══════════════════════════════════════════
+    %% RELATIONSHIPS
+    %% ═══════════════════════════════════════════
+
+    %% Core library
+    artists ||--o{ artist_groups : "is member of"
+    artists ||--o{ artist_groups : "has members"
+    artists ||--o{ album_artists : "credited on"
+    artists ||--o{ song_artists : "credited on"
+    albums ||--o{ album_artists : "credited to"
+    albums ||--o{ songs : "contains"
+    songs ||--o{ song_artists : "performed by"
+    songs ||--o| songs : "canonical_id alias"
+    songs ||--o{ song_relationships : "related as A"
+    songs ||--o{ song_relationships : "related as B"
+
+    %% Glicko-2 system
+    songs ||--o| glicko_ratings : "rated (canonical only)"
+    songs ||--o{ comparisons : "compared as A"
+    songs ||--o{ comparisons : "compared as B"
+    songs ||--o{ play_events : "played"
+
+    %% Platform cross-refs
+    songs ||--o{ platform_song_ids : "known as"
+    artists ||--o{ platform_artist_ids : "known as"
+    albums ||--o{ platform_album_ids : "known as"
+
+    %% Audio & tags
+    songs ||--o| audio_features : "has features"
+    songs ||--o{ song_tags : "tagged with"
