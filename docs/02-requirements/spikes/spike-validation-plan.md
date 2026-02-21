@@ -1,10 +1,15 @@
+---
+date created: 2026-02-16 (Monday), 11:50:44 am
+date modified: 2026-02-21 (Saturday), 01:01:11 am
+---
+
 # MusicElo V3.0 — Spike Validation Test Plan
 
 **Project:** MusicElo v3.0 — Personal Music Ranking and Discovery System  
 **Date:** February 2026  
 **Author:** Enoch Ko  
 **Stage:** Pre-Design Validation  
-**Version:** 0.1
+**Version:** 0.2
 
 ---
 
@@ -335,19 +340,29 @@ If this setup alone takes >1 hour, document the experience — that's valuable d
 | 9 | Check for unique identifiers: is there a Spotify track ID, Apple Music ID, or any platform-specific ID in the dictionary? | **Probably not** — but must verify | If present, simplifies song matching significantly |
 | 10 | CarPlay: connect to CarPlay (or simulator), play music — does now-playing still work? | Yes | CarPlay use case (primary driving scenario) |
 | 11 | Test with Korean song titles: do Unicode characters come through correctly? | Yes, full Hangul preserved | K-pop metadata integrity |
+| 12 | Dump ALL dictionary keys from `MPNowPlayingInfoCenter` for each app (not just expected keys) | Discover any undocumented or app-specific keys | May reveal useful metadata not in Apple's public docs |
+| 13 | While Spotify plays: simultaneously poll Spotify Web API `GET /me/player/currently-playing` and read `MPNowPlayingInfoCenter` | Both return data; titles match | Validates hybrid source detection — Spotify API provides track ID + ISRC alongside generic now-playing |
+| 14 | While Apple Music plays: read `MPMusicPlayerController.systemMusicPlayer.nowPlayingItem` and check for `playbackStoreID` | Returns Apple Music catalogue ID (numeric string) | Apple Music-specific ID path — only works when Apple Music is the active player |
+| 15 | While Spotify or YTM plays: read `MPMusicPlayerController.systemMusicPlayer.nowPlayingItem` | Returns nil or stale data | Confirms `systemMusicPlayer` is Apple Music-only; cannot be used for cross-platform detection |
+| 16 | Play the same TWICE song (e.g., "What is Love?") on all three platforms; compare title and artist strings across platforms | Document exact string differences | Informs fuzzy matching tolerance for cross-platform song identification |
 
 **Prerequisites:**
 - Xcode installed on Mac
 - iPhone for real-device testing (simulator may not have real now-playing data)
 - Spotify, Apple Music, and YouTube Music apps installed on the iPhone
 - Apple Developer account for deploying to device
+- For test 13: Spotify OAuth token (reuse from S-09 if already completed)
 
 **Prototype approach:**
 - Minimal SwiftUI app with a single view
 - Timer-based polling (every 1 second) of `MPNowPlayingInfoCenter`
-- Display all dictionary keys and values on screen
+- Display all dictionary keys and values on screen (test 12: log raw key names, not just expected ones)
 - Log to console for analysis
-- No backend, no Supabase, no API calls — purely testing what iOS provides
+- For test 13: include a simple HTTP call to Spotify's currently-playing endpoint (URLSession)
+- For tests 14–15: add `MPMusicPlayerController.systemMusicPlayer.nowPlayingItem` read alongside `MPNowPlayingInfoCenter`
+- No backend, no Supabase — purely testing what iOS provides
+
+**Why tests 12–16 were added:** Documentation research (see `ios-nowplaying-research.md`) confirmed that `MPNowPlayingInfoCenter` does not expose source app identity or platform-specific track IDs. The hybrid detection strategy — using Spotify Web API and `systemMusicPlayer` alongside `MPNowPlayingInfoCenter` — needs empirical validation on-device. These tests verify the feasibility of that approach before committing to it in design.
 
 **Why this can't be a Python script:** `MPNowPlayingInfoCenter` is an iOS/macOS framework API. It must be tested in a native app context. This is the one spike that requires Swift/Xcode.
 
@@ -357,12 +372,14 @@ If this setup alone takes >1 hour, document the experience — that's valuable d
 - Updates within 3 seconds of song change
 - Works in background (even with limitations)
 - Korean characters displayed correctly
+- Hybrid detection feasible: Spotify API and/or `systemMusicPlayer` can reliably distinguish source platform when combined with `MPNowPlayingInfoCenter` data
 
 **Fail action:** If `MPNowPlayingInfoCenter` doesn't work for YouTube Music, the PRD's claim that YTM works on mobile "via MPNowPlayingInfoCenter" is wrong. Mitigation: YTM mobile now-playing detection may require a different approach or may not be possible. If it doesn't work for *any* app, the companion app architecture itself needs rethinking (this would be a critical finding).
 
 **Partial failure scenarios:**
 - If background execution is severely limited: now-playing detection may only work when the MusicElo app is in foreground. This changes the UX significantly — document and escalate.
-- If no platform-specific IDs are in the dictionary: song matching must rely on title + artist string matching against the library. This is expected but confirm.
+- If no platform-specific IDs are in the dictionary: song matching must rely on title + artist string matching against the library for YTM. This is expected but confirm. Spotify and Apple Music have richer ID paths (tests 13–14).
+- If hybrid detection heuristic is unreliable (e.g., Spotify API reports `is_playing=false` while Spotify is audibly playing): source detection may require user-selected platform as fallback (UX impact — document).
 
 ---
 
@@ -532,6 +549,7 @@ After all spikes complete, use this framework to determine PRD impact:
 | Apple Music auth prohibitively complex | Reconsider Must Have → Should Have; document developer experience findings |
 | MPNowPlayingInfoCenter doesn't work for YTM | Remove YTM mobile now-playing claim from PRD; YTM becomes import-only source |
 | MPNowPlayingInfoCenter doesn't work at all | **Critical.** Companion app architecture needs redesign. Consider notification-based approach or foreground-only operation. |
+| Hybrid source detection unreliable (S-07 tests 13–15) | Fall back to user-selected platform per session; `playback_platform` on `play_events` populated manually rather than auto-detected |
 | Spotify endpoints more restricted than documented | Reduce Spotify dependency; accelerate Apple Music integration |
 | Multiple spikes fail | PRD v1.1 with revised architecture; possible scope reduction for MVP |
 
@@ -542,3 +560,4 @@ After all spikes complete, use this framework to determine PRD impact:
 | Date       | Version | Changes                       | Author   |
 | ---------- | ------- | ----------------------------- | -------- |
 | 2026-02-16 | 0.1     | Initial spike validation plan | Enoch Ko |
+| 2026-02-21 | 0.2     | S-07: Added tests #12–16 (hybrid source detection, full key dump, cross-platform title comparison). Updated pass criteria, partial failure scenarios, and decision framework. Based on iOS API documentation research confirming MPNowPlayingInfoCenter lacks source app identity. | Claude |
