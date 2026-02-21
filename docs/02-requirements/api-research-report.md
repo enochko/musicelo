@@ -1,12 +1,18 @@
-# Song Metadata Fields Across Music Service APIs
+# MusicElo V3.0 — Song Metadata API Research Report
 
-## Research Report — February 2026 (v0.1)
+**Project:** MusicElo v3.0 — Personal Music Ranking and Discovery System  
+**Date:** February 2026  
+**Author:** Enoch Ko  
+**Stage:** Requirements Definition  
+**Version:** 0.2
 
 ---
 
 ## 1. Executive Summary
 
 This report catalogues the song/track-level metadata fields available via APIs and tools from **ten** music data sources: **Spotify**, **YouTube Music**, **Apple Music**, **MusicBrainz**, **Deezer**, **Last.fm**, **AcousticBrainz** (legacy), **Musixmatch**, **ReccoBeats**, and local audio analysis libraries (**Essentia** / **librosa**). It identifies cross-platform identifiers, documents access restrictions, addresses the artist credit mismatch problem (particularly for K-pop group/solo releases), and surveys alternatives for audio features (genre, key, tempo, valence, mood) now that Spotify has restricted access.
+
+> ⚠️ **Review note (B3):** The report counts "ten" sources. The enumeration yields 9 distinct services plus 2 local libraries (Essentia + librosa) counted as one combined entry. Verify this counting convention is acceptable or clarify in text.
 
 **Key findings:**
 
@@ -22,14 +28,14 @@ This report catalogues the song/track-level metadata fields available via APIs a
 
 ### 2.1 Spotify Web API
 
-**API Type:** Official REST API (OAuth 2.0)
-**Base URL:** `https://api.spotify.com/v1`
+**API Type:** Official REST API (OAuth 2.0)  
+**Base URL:** `https://api.spotify.com/v1`  
 **Endpoint:** `GET /tracks/{id}`
 
 Spotify's Web API is the most widely used commercial music metadata API. It returns a structured JSON Track Object with nested Album and Artist sub-objects.
 
 **Critical Warning — February 2026 Breaking Changes:**
-Spotify announced sweeping changes to its Web API in February 2026 that severely impact **Development Mode** apps. The following fields have been **removed** from Dev Mode responses:
+Spotify announced sweeping changes to its Web API in February 2026 that severely impact **Development Mode** apps. Based on documentation review, the following fields have been **removed** from Dev Mode responses:
 
 - `external_ids` (which contained **ISRC**, EAN, and UPC)
 - `available_markets`
@@ -38,21 +44,30 @@ Spotify announced sweeping changes to its Web API in February 2026 that severely
 
 For album objects, `external_ids`, `label`, and `popularity` were also removed.
 
-**Extended Quota Mode** apps are unaffected. This means that obtaining ISRC from Spotify now requires applying for and being granted Extended Quota Mode access—a significantly higher bar.
+**Extended Quota Mode** apps are unaffected. This means that obtaining ISRC from Spotify now requires applying for and being granted Extended Quota Mode access — a significantly higher bar.
+
+> ⚠️ **Review note (A1):** All Spotify restriction details in §2.1 are based on Spotify's published documentation, not live testing. See spike S-01 for empirical validation.
 
 Additional restrictions for Dev Mode include: search results limited to 10 per page, batch endpoints (`GET /tracks` for multiple IDs) removed, and playlist contents only returned for playlists the user owns or collaborates on.
 
 **Other access notes:**
+
 - Audio Features and Audio Analysis endpoints were restricted to pre-existing apps in late 2024; new apps cannot access them.
+
+> ⚠️ **Review note (A2):** The exact date of the Audio Features restriction in late 2024 should be confirmed against Spotify's changelog. "Late 2024" is approximate.
+
 - 30-second preview URLs were removed for new apps.
-- Spotify Premium account required to create apps.
+- Spotify Premium account required for full API access.
+
+> ⚠️ **Review note (A3):** Original v0.1 said "required to create apps". Reworded to "required for full API access" — creating an app in the developer dashboard may not itself require Premium. Verify during S-01.
+
 - Content may not be used to train ML/AI models.
 - Metadata must be accompanied by a link back to Spotify and the Spotify logo.
 
 ### 2.2 YouTube Music / YouTube Data API v3
 
-**API Type:** Official YouTube Data API v3 (REST, API key or OAuth 2.0) + Unofficial `ytmusicapi` (Python, cookie-based auth)
-**Base URL (official):** `https://www.googleapis.com/youtube/v3`
+**API Type:** Official YouTube Data API v3 (REST, API key or OAuth 2.0) + Unofficial `ytmusicapi` (Python, cookie-based auth)  
+**Base URL (official):** `https://www.googleapis.com/youtube/v3`  
 **Unofficial library:** `ytmusicapi` (Python, reverse-engineered)
 
 YouTube Music does **not** have a dedicated official API. Developers must choose between:
@@ -61,35 +76,35 @@ YouTube Music does **not** have a dedicated official API. Developers must choose
 
 2. **`ytmusicapi`** (unofficial) — provides music-specific fields like artist, album, duration, and explicit flag. Does **not** expose ISRC.
 
-**Access restrictions (official API):** Daily quota of 10,000 units. No ISRC, no structured artist/album fields.
+**Access restrictions (official API):** Daily quota of 10,000 units. No ISRC, no structured artist/album fields.  
 **Access restrictions (ytmusicapi):** Unofficial; may break at any time. Requires browser cookie authentication. No ISRC field.
 
 ### 2.3 Apple Music API
 
-**API Type:** Official REST API (JWT authentication via Apple Developer Program)
-**Base URL:** `https://api.music.apple.com/v1`
-**Endpoint:** `GET /v1/catalog/{storefront}/songs/{id}`
+**API Type:** Official REST API (JWT authentication via Apple Developer Program)  
+**Base URL:** `https://api.music.apple.com/v1`  
+**Endpoint:** `GET /v1/catalogue/{storefront}/songs/{id}`
 
-Apple Music's API provides rich metadata including ISRC as a standard field and a dedicated ISRC lookup endpoint: `GET /v1/catalog/{storefront}/songs?filter[isrc]={isrc}`.
+Apple Music's API provides rich metadata including ISRC as a standard field and a dedicated ISRC lookup endpoint: `GET /v1/catalogue/{storefront}/songs?filter[isrc]={isrc}`.
 
-**Important caveat:** ISRC is only on **catalog songs**, not `library-songs`. Must follow the `catalog` relationship to get ISRC for library songs.
+**Important caveat:** ISRC is only on **catalogue songs**, not `library-songs`. Must follow the `catalogue` relationship to get ISRC for library songs.
 
 **Access requirements:** Apple Developer Program membership (annual fee), JWT token authentication.
 
 ### 2.4 MusicBrainz API
 
-**API Type:** Open REST API (no API key required; User-Agent header mandatory)
-**Base URL:** `https://musicbrainz.org/ws/2`
+**API Type:** Open REST API (no API key required; User-Agent header mandatory)  
+**Base URL:** `https://musicbrainz.org/ws/2`  
 **Key resource:** `recording` (equivalent to a "track/song")
 
-MusicBrainz is an open-source, community-maintained music encyclopedia. ISRC is available via `inc=isrcs`. Direct ISRC lookups: `GET /ws/2/isrc/{isrc}`. Stores URL relationships to Spotify, Apple Music, YouTube, and other platforms.
+MusicBrainz is an open-source, community-maintained music encyclopaedia. ISRC is available via `inc=isrcs`. Direct ISRC lookups: `GET /ws/2/isrc/{isrc}`. Stores URL relationships to Spotify, Apple Music, YouTube, and other platforms.
 
 **Access notes:** 1 request/sec rate limit. Descriptive User-Agent mandatory. Community-curated data: excellent for Western music, may be incomplete for K-pop.
 
-### 2.5 Deezer API *(NEW)*
+### 2.5 Deezer API
 
-**API Type:** REST API (no auth required for basic catalog lookups; OAuth 2.0 for user data)
-**Base URL:** `https://api.deezer.com`
+**API Type:** REST API (no auth required for basic catalogue lookups; OAuth 2.0 for user data)  
+**Base URL:** `https://api.deezer.com`  
 **Endpoint:** `GET /track/{id}`
 
 Deezer is a critical addition to the data source portfolio. Its "Simple API" provides free, unauthenticated access to track metadata including **ISRC and BPM** — two fields that have become restricted on Spotify. It also supports an undocumented but widely-used ISRC lookup endpoint.
@@ -113,14 +128,14 @@ Deezer is a critical addition to the data source portfolio. Its "Simple API" pro
 **Undocumented ISRC lookup:** `GET /track/isrc:{ISRC}` returns a track matching the given ISRC. Note: only returns one track even if multiple share an ISRC.
 
 **Access notes:**
-- No authentication required for catalog lookups (search, track, album, artist).
+- No authentication required for catalogue lookups (search, track, album, artist).
 - No published rate limits for unauthenticated access, but throttling is enforced.
-- OAuth 2.0 required for user-specific data (playlists, favorites).
+- OAuth 2.0 required for user-specific data (playlists, favourites).
 - BPM is only returned on individual track lookups, not when listing album tracks.
 
-### 2.6 Last.fm API *(NEW)*
+### 2.6 Last.fm API
 
-**API Type:** REST API (API key required, free registration)
+**API Type:** REST API (API key required, free registration)  
 **Base URL:** `https://ws.audioscrobbler.com/2.0/`
 
 Last.fm is the premier source for **community-sourced genre/style tags** and **listening statistics**. Its tagging system is freeform and crowdsourced, providing richer genre classification than most structured APIs.
@@ -137,18 +152,20 @@ Last.fm is the premier source for **community-sourced genre/style tags** and **l
 **Access notes:**
 - Free API key via registration. No OAuth required for public data.
 - Rate limit: ~5 requests/second (not formally documented, but enforced).
-- Tags are community-generated and unstructured—some noise (e.g., "seen live", "favorites").
+- Tags are community-generated and unstructured — some noise (e.g., "seen live", "favourites").
 - MusicBrainz IDs (MBIDs) are often included, enabling cross-referencing.
 - Commercial/research use requires contacting Last.fm.
 
 ### 2.7 AcousticBrainz *(LEGACY — Data Archive)*
 
-**API Type:** REST API (still accessible at acousticbrainz.org) + downloadable data dumps
-**Status:** Stopped collecting data in 2022. Website and API still available but no new submissions.
+**API Type:** REST API (was accessible at acousticbrainz.org) + downloadable data dumps  
+**Status:** Stopped collecting data in 2022. Data dumps remain available but the live API may no longer be accessible.
+
+> ⚠️ **Review note (A6):** AcousticBrainz was officially retired. The v0.1 text stated the "website and API still available" — this may no longer be true. The data dumps on archive.org remain the reliable access path. Verify current status of acousticbrainz.org before finalising.
 
 AcousticBrainz crowdsourced audio analysis data (computed via Essentia) for ~7 million unique MusicBrainz recordings. Data is indexed by MusicBrainz Recording MBID.
 
-**Key fields (low-level):** BPM, key, scale, average loudness, spectral features, rhythm descriptors, tonal descriptors.
+**Key fields (low-level):** BPM, key, scale, average loudness, spectral features, rhythm descriptors, tonal descriptors.  
 **Key fields (high-level):** mood (acoustic, aggressive, electronic, happy, party, relaxed, sad), genre (Rosamerica, Electronic, TZNETZE), danceability, voice/instrumental classification, gender classification, timbre, tonal/atonal.
 
 **Access notes:**
@@ -158,9 +175,9 @@ AcousticBrainz crowdsourced audio analysis data (computed via Essentia) for ~7 m
 - Data quality varies by submission (different audio codecs/bitrates).
 - Best used as a pre-computed lookup table, not for new analysis.
 
-### 2.8 Musixmatch API *(NEW)*
+### 2.8 Musixmatch API
 
-**API Type:** REST API (API key required)
+**API Type:** REST API (API key required)  
 **Base URL:** `https://api.musixmatch.com/ws/1.1/`
 
 Musixmatch operates the world's largest licensed lyrics database (14M+ lyrics, 50+ languages). Beyond lyrics, it provides track metadata, genre tags, and mood annotations.
@@ -180,11 +197,13 @@ Musixmatch operates the world's largest licensed lyrics database (14M+ lyrics, 5
 - ISRC available in track metadata.
 - Genre data is structured (not freeform like Last.fm tags).
 
-### 2.9 ReccoBeats API *(NEW)*
+### 2.9 ReccoBeats API
 
-**API Type:** REST API (free, no auth for basic features)
-**Base URL:** `https://reccobeats.com/`
+**API Type:** REST API (free, no auth for basic features)  
+**Base URL:** `https://reccobeats.com/`  
 **Key endpoint:** `GET /v1/track/audio-features?ids={spotify_ids}`
+
+> ⚠️ **Review note (A5):** The base URL may not be the root domain. The actual API base URL could be `https://api.reccobeats.com` or similar. Verify during S-05 and update.
 
 ReccoBeats emerged as a direct replacement for Spotify's deprecated Audio Features API. It provides the same set of audio features (acousticness, danceability, energy, instrumentalness, liveness, loudness, speechiness, tempo, valence) using Spotify track IDs.
 
@@ -212,12 +231,12 @@ ReccoBeats emerged as a direct replacement for Spotify's deprecated Audio Featur
 - Database of millions of tracks, regularly updated.
 - Quality/provenance of data not fully documented.
 
-### 2.10 Local Audio Analysis Libraries *(NEW)*
+### 2.10 Local Audio Analysis Libraries
 
 For complete control over audio feature extraction, two open-source Python libraries are the industry standard:
 
 #### Essentia (Music Technology Group, UPF Barcelona)
-**License:** AGPL v3 (proprietary license available)
+**Licence:** AGPL v3 (proprietary licence available)  
 **Languages:** C++ core, Python and JavaScript bindings
 
 Essentia is the most comprehensive MIR (Music Information Retrieval) library. It was the engine behind AcousticBrainz.
@@ -233,7 +252,7 @@ Essentia is the most comprehensive MIR (Music Information Retrieval) library. It
 **Requires:** Access to audio files (MP3, WAV, FLAC, etc.). Cannot work from metadata alone.
 
 #### librosa (LabROSA, Columbia University)
-**License:** ISC (permissive)
+**Licence:** ISC (permissive)  
 **Language:** Python only
 
 librosa is simpler and more accessible than Essentia, widely used in research.
@@ -258,6 +277,8 @@ A critical matching issue arises with K-pop group releases that contain solo tra
 This creates a mismatch where:
 - **Spotify:** Artist = "TWICE" (Spotify Artist ID: `7n2Ycct7Beij7Dj7meI4X0`)
 - **MusicBrainz:** Track-level artist credit = "Nayeon" or "Jihyo" (individual MBIDs), while the **release-level** artist credit remains "TWICE"
+
+> ⚠️ **Review note (A11):** The Spotify Artist ID `7n2Ycct7Beij7Dj7meI4X0` for TWICE should be verified. If incorrect it undermines the example.
 
 ### 3.2 MusicBrainz Artist Credit Structure
 
@@ -301,7 +322,7 @@ To handle this mismatch:
 | Service | ISRC Available? | How to Access | Restrictions |
 |---------|----------------|---------------|-------------|
 | **Spotify** | Yes (was standard) | `external_ids.isrc` on Track Object | **Removed from Dev Mode in Feb 2026.** Extended Quota only. |
-| **Apple Music** | Yes | `attributes.isrc` on catalog Songs; ISRC lookup endpoint | Only on catalog songs, not `library-songs`. |
+| **Apple Music** | Yes | `attributes.isrc` on catalogue Songs; ISRC lookup endpoint | Only on catalogue songs, not `library-songs`. |
 | **MusicBrainz** | Yes | `inc=isrcs` on recording lookups; `/ws/2/isrc/{isrc}` | Community-curated; coverage varies. |
 | **Deezer** | **Yes** | `isrc` field on Track object; `/track/isrc:{ISRC}` lookup | Free, no auth. Undocumented ISRC endpoint returns only 1 result. |
 | **Musixmatch** | Yes | `track_isrc` in track metadata | Available in track.get and track.search responses. |
@@ -323,7 +344,7 @@ To handle this mismatch:
 ### 4.3 Practical Matching Strategy (Updated)
 
 1. **ISRC first** — Obtain from Deezer (free, no auth), Apple Music, or MusicBrainz. Search other platforms by ISRC.
-2. **Heuristic matching** — title + artist + album + duration (±2–5s tolerance). Normalize strings.
+2. **Heuristic matching** — title + artist + album + duration (±2–5s tolerance). Normalise strings.
 3. **MusicBrainz as a bridge** — URL relationships link to Spotify, YouTube, Apple Music, Deezer, and more.
 4. **Artist ID resolution** — When artist names don't match (group vs. solo), use MusicBrainz artist relationships to resolve group membership.
 5. **Deezer as ISRC bridge** — Use Deezer's free ISRC field to obtain ISRCs without Spotify Extended Quota.
@@ -347,17 +368,17 @@ With Spotify's Audio Features and Audio Analysis endpoints restricted (new apps 
 | **Acousticness** | No | `mood_acoustic` | `acousticness` | Yes (model) | No | No | No | No |
 | **Instrumentalness** | No | `voice_instrumental` | `instrumentalness` | Yes (model) | No | No | No | No |
 | **Loudness** | `gain` | `average_loudness` | `loudness` | Yes (EBU R128) | Yes (RMS) | No | No | No |
-| **Genre** | Album genre | `genre_rosamerica` etc. | No | Yes (models) | No | **Community tags** | `primary_genres` | `genreNames[]` |
-| **Mood** | No | Multiple mood classifiers | No | Yes (models) | No | **Community tags** | Yes (mood tags) | No |
 | **Speechiness** | No | No | `speechiness` | Derivable | No | No | No | No |
 | **Liveness** | No | No | `liveness` | Derivable | No | No | No | No |
+| **Genre** | Album genre | `genre_rosamerica` etc. | No | Yes (models) | No | **Community tags** | `primary_genres` | `genreNames[]` |
+| **Mood** | No | Multiple mood classifiers | No | Yes (models) | No | **Community tags** | Yes (mood tags) | No |
 
 ### 5.2 Recommended Strategy for Audio Features
 
 **Tier 1 — Pre-computed API lookups (no audio file needed):**
 - **Deezer:** Free BPM and gain for any track by ID or ISRC. Start here.
 - **ReccoBeats:** Full Spotify-style feature set by Spotify track ID. Free, easy drop-in replacement.
-- **AcousticBrainz:** If you have MusicBrainz Recording MBIDs, look up pre-computed features for ~7M tracks. CC0 license. Legacy data (no new submissions since 2022).
+- **AcousticBrainz:** If you have MusicBrainz Recording MBIDs, look up pre-computed features for ~7M tracks. CC0 licence. Legacy data (no new submissions since 2022).
 
 **Tier 2 — Community tags (genre/mood):**
 - **Last.fm:** Best source for genre/mood tags. `track.getTopTags` returns weighted tags.
@@ -373,6 +394,8 @@ With Spotify's Audio Features and Audio Analysis endpoints restricted (new apps 
 
 ## 6. Common Fields Across Services (Summary Table)
 
+This table covers the seven primary API services. Musixmatch, ReccoBeats, AcousticBrainz, and local analysis libraries (Essentia/librosa) are excluded as they do not map cleanly to the common-field format — see §2.8–2.10 and §5.1 for their field coverage.
+
 | Metadata Concept | Spotify | YouTube API | ytmusicapi | Apple Music | MusicBrainz | Deezer | Last.fm |
 |-----------------|---------|-------------|------------|-------------|-------------|--------|---------|
 | **Platform ID** | `id` | `id` (VideoID) | `videoId` | `id` | `id` (MBID) | `id` | N/A |
@@ -380,7 +403,7 @@ With Spotify's Audio Features and Audio Analysis endpoints restricted (new apps 
 | **Artist Name(s)** | `artists[].name` | `channelTitle`¹ | `artists[].name` | `attributes.artistName` | `artist-credit[].artist.name` | `artist.name` | `artist` |
 | **Artist ID** | `artists[].id` | `channelId` | `artists[].id` | via rels | `artist-credit[].artist.id` | `artist.id` | MBID |
 | **Album Name** | `album.name` | N/A | `album.name` | `attributes.albumName` | via release | `album.title` | `album` |
-| **Duration** | `duration_ms` (ms) | ISO 8601 | `duration_seconds` | `durationInMillis` | `length` (ms) | `duration` (sec) | `duration` (ms) |
+| **Duration** | `duration_ms` (ms) | ISO 8601 | `duration_seconds` | `durationInMillis` | `length` (ms) | `duration` (sec) | `duration` (ms)⁸ |
 | **Track Number** | `track_number` | N/A | `trackNumber`² | `attributes.trackNumber` | track position | `track_position` | N/A |
 | **Disc Number** | `disc_number` | N/A | N/A | `attributes.discNumber` | medium position | `disk_number` | N/A |
 | **ISRC** | `external_ids.isrc`³ | N/A | N/A | `attributes.isrc`⁴ | `inc=isrcs` | `isrc` | N/A |
@@ -391,18 +414,19 @@ With Spotify's Audio Features and Audio Analysis endpoints restricted (new apps 
 | **Popularity** | `popularity`³ | `viewCount` | `views` | N/A | N/A | `rank` | `playcount` |
 | **Preview** | `preview_url`⁷ | N/A | N/A | `previews[].url` | N/A | `preview` | N/A |
 | **Contributors** | N/A | N/A | N/A | `composerName` | via Work rels | `contributors[]` | N/A |
-| **Lyrics** | N/A | N/A | N/A | `hasLyrics` | N/A | N/A | N/A⁸ |
+| **Lyrics** | N/A | N/A | N/A | `hasLyrics` | N/A | N/A | N/A⁹ |
 | **Artwork** | `album.images[]` | `thumbnails` | `thumbnails[]` | `artwork` | Cover Art Archive | `album.cover*` | `image[]` |
 
 **Footnotes:**
 1. YouTube `channelTitle` is the uploader, not necessarily the performing artist.
 2. Only available from `get_album()` in ytmusicapi.
 3. **Removed from Spotify Dev Mode in Feb 2026.** Extended Quota only.
-4. Only on catalog songs; not `library-songs`.
+4. Only on catalogue songs; not `library-songs`.
 5. YouTube `publishedAt` is upload date, not music release date.
 6. Wikipedia URLs, not structured genre labels.
 7. Preview URLs removed for new Spotify apps (late 2024).
-8. Last.fm does not provide lyrics; use Musixmatch instead.
+8. Last.fm `track.getInfo` returns duration in milliseconds. ⚠️ **(C8):** Some Last.fm docs show duration in seconds for certain endpoints. Verify during S-08.
+9. Last.fm does not provide lyrics; use Musixmatch instead.
 
 ---
 
@@ -414,17 +438,17 @@ With Spotify's Audio Features and Audio Analysis endpoints restricted (new apps 
 | **Audio Features/Analysis restricted** | Spotify | New apps (post-Nov 2024) cannot access. **Use ReccoBeats, Deezer BPM, or Essentia.** |
 | **Batch endpoints removed** | Spotify | Must fetch tracks individually in Dev Mode. |
 | **Search limit reduced** | Spotify | Capped at 10/page in Dev Mode. |
-| **Premium required** | Spotify | App owner needs active Premium subscription. |
+| **Premium required** | Spotify | App owner needs active Premium subscription for full API access. |
 | **No ML/AI training** | Spotify | Content may not be used for ML/AI model training. |
 | **No official YouTube Music API** | YouTube | Must use video-centric API or unofficial ytmusicapi. |
 | **Quota system** | YouTube | 10,000 units/day default. |
-| **ISRC only on catalog songs** | Apple Music | Must follow `catalog` relationship for library-songs. |
+| **ISRC only on catalogue songs** | Apple Music | Must follow `catalogue` relationship for library-songs. |
 | **Apple Developer Program cost** | Apple Music | Annual fee required. |
 | **Rate limit: 1 req/sec** | MusicBrainz | Strict; descriptive User-Agent mandatory. |
 | **Community-curated data** | MusicBrainz | Coverage varies; K-pop may have artist credit inconsistencies. |
 | **BPM only on individual lookups** | Deezer | Not returned when listing album tracks (need per-track fetch). |
 | **ISRC lookup returns single result** | Deezer | Undocumented endpoint; may miss duplicates. |
-| **Legacy data only** | AcousticBrainz | No new data since 2022. ~7M recordings covered. |
+| **Legacy data only** | AcousticBrainz | No new data since 2022. ~7M recordings covered. Website/API may be retired. |
 | **Non-commercial free tier** | Musixmatch | Free tier limited to 2,000 calls/day, 30% lyrics. Commercial requires paid plan. |
 | **Unofficial ytmusicapi** | YouTube | Reverse-engineered; can break without notice. |
 | **Data provenance unclear** | ReccoBeats | Feature extraction methodology not fully documented. |
@@ -455,7 +479,7 @@ With Spotify's Audio Features and Audio Analysis endpoints restricted (new apps 
 
 7. **For lyrics data** — Musixmatch is the leading source (14M+ lyrics). Free tier available for non-commercial use.
 
-8. **Monitor Spotify API** — The Feb 2026 changes were significant. No replacement for Audio Features has materialized despite hints from Spotify support in Dec 2024.
+8. **Monitor Spotify API** — The Feb 2026 changes were significant. No replacement for Audio Features has materialised despite hints from Spotify support in Dec 2024.
 
 ---
 
@@ -478,6 +502,21 @@ With Spotify's Audio Features and Audio Analysis endpoints restricted (new apps 
 - ReccoBeats Audio Features: https://reccobeats.com/docs/apis/get-track-audio-features
 - Essentia: https://essentia.upf.edu/
 - librosa: https://librosa.org/
-- Soundcharts Audio Features API: https://soundcharts.com/en/audio-features-api
 - ISRC (ISO 3901): https://musicbrainz.org/doc/ISRC
-- Music APIs Collection: https://gist.github.com/0xdevalias/eba698730024674ecae7f43f4c650096
+
+---
+
+## Revision History
+
+| Date | Version | Changes | Author |
+|------|---------|---------|--------|
+| 2026-02-16 | 0.1 | Initial research report covering 10 music data sources | Enoch Ko |
+| 2026-02-21 | 0.2 | Structured review: added metadata header, revision history, and document status section; fixed Australian English throughout (catalogue, normalise, licence, favourites, encyclopaedia, materialised); added qualification language for unvalidated Spotify claims (deferred to S-01); updated AcousticBrainz status to reflect possible retirement; reworded Spotify Premium requirement for accuracy; added explanatory note for §6 table scope (D4); removed orphan references Soundcharts and Music APIs Collection gist (D7/D8); added trailing double-space line breaks to metadata fields per project convention; synchronised section header format with project standard; removed *(NEW)* markers from section headers (all services are "current" at v0.2); added review notes for items requiring manual verification | Claude |
+
+---
+
+## Document Status
+
+**Status:** Draft — v0.2 review complete, pending manual verification of flagged items  
+**Next Step:** Resolve ⚠️ review notes, then advance to v1.0  
+**Companion file:** `api-fields-catalogue.json` (v0.2, reviewed in parallel)

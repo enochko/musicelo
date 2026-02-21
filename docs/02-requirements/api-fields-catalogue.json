@@ -1,15 +1,24 @@
 {
   "_meta": {
-    "title": "Music Service API - Song/Track Metadata Fields (v2.0)",
+    "title": "MusicElo V3.0 — Song Metadata API Field Catalogue",
     "generated": "2026-02-16",
-    "version": "2.0",
-    "description": "Complete listing of song/track-level metadata fields from 10 sources: Spotify, YouTube Music (official+unofficial), Apple Music, MusicBrainz, Deezer, Last.fm, AcousticBrainz (legacy), Musixmatch, ReccoBeats, and local analysis (Essentia, librosa)."
+    "revised": "2026-02-21",
+    "version": "0.2",
+    "description": "Complete listing of song/track-level metadata fields from 10 sources: Spotify, YouTube Music (official+unofficial), Apple Music, MusicBrainz, Deezer, Last.fm, AcousticBrainz (legacy), Musixmatch, ReccoBeats, and local analysis (Essentia, librosa).",
+    "companion_document": "api-research-report.md",
+    "review_notes": [
+      "(B1) Added speechiness and liveness to audio_features_availability_matrix — were present in report §5.1 but missing from JSON v0.1.",
+      "(B4) Version corrected from 2.0 to 0.2 — was out of sync with companion report.",
+      "(B5) Title aligned with companion report naming convention.",
+      "(D5) Original 4 services (Spotify, YouTube, Apple Music, MusicBrainz) still have no per-field listing in this JSON — only new_services_summary covers the 6 additions + local libs. Consider adding in a future revision if machine-readable field catalogue is needed for all 10 sources.",
+      "(D6) Added album.upc to Deezer key_fields — was referenced in report §4.2 but missing here."
+    ]
   },
   "new_services_summary": {
     "deezer": {
-      "key_fields": ["id", "title", "title_short", "title_version", "isrc", "duration", "track_position", "disk_number", "bpm", "gain", "rank", "release_date", "explicit_lyrics", "preview", "contributors[]", "artist.id", "artist.name", "album.id", "album.title", "available_countries[]"],
+      "key_fields": ["id", "title", "title_short", "title_version", "isrc", "duration", "track_position", "disk_number", "bpm", "gain", "rank", "release_date", "explicit_lyrics", "preview", "contributors[]", "artist.id", "artist.name", "album.id", "album.title", "album.upc", "available_countries[]"],
       "unique_value": "Free ISRC + BPM without authentication. ISRC lookup via /track/isrc:{ISRC}",
-      "access": "No auth for catalog lookups. OAuth for user data."
+      "access": "No auth for catalogue lookups. OAuth for user data."
     },
     "lastfm": {
       "key_fields": ["name", "artist.name", "artist.mbid", "mbid", "duration", "listeners", "playcount", "toptags.tag[].name", "toptags.tag[].count", "album.title", "album.mbid", "wiki.summary"],
@@ -19,8 +28,8 @@
     "acousticbrainz_legacy": {
       "key_fields_lowlevel": ["rhythm.bpm", "tonal.key_key", "tonal.key_scale", "tonal.chords_key", "tonal.chords_scale", "tonal.key_strength", "lowlevel.average_loudness"],
       "key_fields_highlevel": ["danceable", "genre_rosamerica", "mood_acoustic", "mood_aggressive", "mood_electronic", "mood_happy", "mood_party", "mood_relaxed", "mood_sad", "moods_mirex", "voice_instrumental", "timbre", "tonal_atonal"],
-      "unique_value": "Pre-computed audio features for ~7M MusicBrainz recordings. CC0 license.",
-      "access": "No auth. Indexed by MusicBrainz Recording MBID. LEGACY: no new data since 2022."
+      "unique_value": "Pre-computed audio features for ~7M MusicBrainz recordings. CC0 licence.",
+      "access": "No auth. Indexed by MusicBrainz Recording MBID. LEGACY: no new data since 2022. Website/API may be retired — data dumps on archive.org remain available."
     },
     "musixmatch": {
       "key_fields": ["track_id", "track_name", "artist_name", "album_name", "track_isrc", "first_release_date", "track_rating", "has_lyrics", "has_subtitles", "primary_genres.music_genre_list", "lyrics_body", "lyrics_language"],
@@ -35,11 +44,11 @@
     "essentia_local": {
       "key_features": ["BPM (multiple algorithms)", "key/scale", "chords", "loudness (EBU R128)", "MFCCs", "mood (7 classifiers via TF models)", "genre", "danceability", "voice/instrumental"],
       "unique_value": "Most comprehensive open-source MIR library. TensorFlow models for high-level features.",
-      "access": "Local analysis. Requires audio files. AGPL v3 license."
+      "access": "Local analysis. Requires audio files. AGPL v3 licence."
     },
     "librosa_local": {
       "key_features": ["BPM/tempo", "beat tracking", "chroma (STFT/CQT/CENS)", "tonnetz", "MFCCs", "spectral features", "onset detection", "tempogram"],
-      "unique_value": "Simple Python API. Building blocks for audio analysis. ISC license.",
+      "unique_value": "Simple Python API. Building blocks for audio analysis. ISC licence.",
       "access": "Local analysis. Requires audio files."
     }
   },
@@ -66,6 +75,8 @@
     "danceability": {"acousticbrainz": "highlevel.danceable", "reccobeats": "danceability (0-1)", "essentia": "danceability algo"},
     "energy": {"reccobeats": "energy (0-1)", "essentia": "derivable from loudness/dynamics"},
     "loudness": {"deezer": "gain field", "acousticbrainz": "average_loudness", "reccobeats": "loudness (dB)", "essentia": "EBU R128", "librosa": "RMS energy"},
+    "speechiness": {"reccobeats": "speechiness (0-1)", "essentia": "derivable"},
+    "liveness": {"reccobeats": "liveness (0-1)", "essentia": "derivable"},
     "genre": {"lastfm": "community tags (best granularity)", "musicbrainz": "inc=genres", "apple_music": "genreNames[]", "musixmatch": "primary_genres", "acousticbrainz": "genre classifiers", "essentia": "genre models"},
     "mood": {"lastfm": "community tags", "acousticbrainz": "7 mood classifiers", "essentia": "mood TF models", "musixmatch": "mood tags"},
     "instrumentalness": {"acousticbrainz": "voice_instrumental", "reccobeats": "instrumentalness", "essentia": "voice/instrumental model"},
@@ -74,7 +85,7 @@
   },
   "isrc_availability": {
     "spotify": {"available": true, "restriction": "DEV_REMOVED Feb 2026. Extended Quota only.", "field": "external_ids.isrc"},
-    "apple_music": {"available": true, "restriction": "Catalog songs only. Apple Developer Program required.", "field": "attributes.isrc"},
+    "apple_music": {"available": true, "restriction": "Catalogue songs only. Apple Developer Program required.", "field": "attributes.isrc"},
     "musicbrainz": {"available": true, "restriction": "Community-curated. inc=isrcs parameter.", "field": "isrcs[]"},
     "deezer": {"available": true, "restriction": "FREE, no auth required.", "field": "isrc", "lookup_endpoint": "/track/isrc:{ISRC}"},
     "musixmatch": {"available": true, "restriction": "API key required.", "field": "track_isrc"},
