@@ -2,7 +2,8 @@
 
 **Repo:** musicelo-v3  
 **Last updated:** February 2026  
-**Maintained by:** Enoch Ko
+**Maintained by:** Enoch Ko  
+**Version:** 0.2
 
 ---
 
@@ -131,6 +132,44 @@ These are encoded in the PRD (§5) and must be respected in all generated code.
 
 ---
 
+## Documentation Standards
+
+### Language and Style
+
+- **Australian English** throughout all documents. Key spellings: catalogue, normalise,
+  licence (noun), organise, colour, behaviour, favour. Exception: "program" (not
+  "programme" — Australian convention for software/technical contexts).
+
+### Versioning Scheme
+
+- **0.1** — Initial draft (human or AI).
+- **0.x increments** — AI/automated review passes. Not authoritative.
+- **1.0** — Approved after full manual review by Enoch (product owner).
+- **1.x+** — Post-release revisions, with revision history entry.
+
+### Required Document Structure
+
+Every project document (`.md`) must include:
+
+1. **Title** — format: `# MusicElo V3.0 — [Document Title]`
+2. **Metadata block** — Project, Date, Author, Stage, Version. Each line ends with
+   trailing double spaces for Markdown line breaks.
+3. **Revision History** table — Date, Version, Changes, Author.
+4. **Document Status** — Current status, next step, companion files if applicable.
+
+### Review Notes Convention
+
+When an AI review flags items for manual verification:
+
+```
+> ⚠️ **Review note (ID):** Description of what needs verification.
+```
+
+Review notes use blockquotes to visually separate from document content. They must be
+removed or resolved before advancing to v1.0.
+
+---
+
 ## API Rate Limits — Always Respect
 
 | Source | Limit | Notes |
@@ -177,6 +216,15 @@ Do not trust streaming API documentation without spike confirmation — see PRD 
 - Don't skip Alembic for schema changes, even trivial ones
 - Don't trust external API documentation without checking spike test results first
 - Don't apply Glicko-2 delta calculations for undo — always replay from history
+
+---
+
+## Revision History
+
+| Date | Version | Changes | Author |
+|------|---------|---------|--------|
+| 2026-02-16 | 0.1 | Initial CLAUDE.md | Enoch Ko |
+| 2026-02-21 | 0.2 | Added Documentation Standards section (language, versioning, required structure, review notes convention) | Claude |
 
 ---
 
