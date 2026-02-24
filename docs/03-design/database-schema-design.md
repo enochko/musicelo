@@ -1,6 +1,6 @@
 # MusicElo v3.0 — Database Schema Design
 
-**Version:** 0.2
+**Version:** 0.3
 **Date:** February 2026
 **Database:** PostgreSQL (Supabase free tier)
 **Aligned with:** prd-v0.2
@@ -475,6 +475,38 @@ The PRD specifies a single global Glicko-2 pool. If context-aware ranking (e.g.,
 
 The PRD explicitly scopes v3.0 as single-user. Adding a `user_id` FK to ratings/comparisons/play_events later is a simple migration.
 
+### 4.8 Partial Indexes on High-Frequency Boolean Filters
+
+Two columns are queried almost exclusively in one boolean state and are poor candidates for standard indexes due to low cardinality:
+
+**`comparisons.is_undone`** — All active Glicko-2 queries filter `WHERE is_undone = FALSE`. A standard index on a boolean column offers minimal benefit; PostgreSQL may opt for a seq scan regardless. A partial index covers only the rows that matter:
+
+```sql
+CREATE INDEX idx_comparisons_active ON comparisons (song_winner_id, song_loser_id, compared_at)
+WHERE is_undone = FALSE;
+```
+
+**`songs.canonical_id IS NULL`** — All Glicko-2 rating reads and writes operate exclusively on canonical songs. A partial index on canonical songs avoids scanning alias rows:
+
+```sql
+CREATE INDEX idx_songs_canonical ON songs (id)
+WHERE canonical_id IS NULL;
+```
+
+Both indexes are lightweight (canonical songs and active comparisons are the majority of their respective tables) and eliminate the need for the query planner to weigh a seq scan as it grows.
+
+> ⚠️ **Review note (RN-DB-001):** Confirm partial index DDL is included in the initial Alembic migration (`schema.sql`). Verify execution plan improvement with `EXPLAIN ANALYSE` once comparison history exceeds ~1,000 rows.
+
+### 4.9 Source Cache Archival Policy
+
+The `source_cache_*` tables are the largest storage component (see §5) and are typically read only during initial metadata ingestion or on explicit re-merge. Without a retention policy, they grow indefinitely with redundant fetches.
+
+**Recommended policy:** retain the two most recent fetches per `(platform, platform_id)` pair; mark older rows `is_stale = TRUE` during ingestion and purge stale rows on a periodic maintenance job (e.g., weekly). This bounds cache storage growth without sacrificing the ability to compare successive API responses for drift detection.
+
+This is consistent with the existing `is_stale` flag and `fetched_at` index on the cache tables — no schema change required, only application-layer enforcement.
+
+> ⚠️ **Review note (RN-DB-002):** Define the archival/purge job as part of the enrichment pipeline design. Decide whether to purge immediately on ingest (simpler) or via a scheduled job (more flexible for drift analysis).
+
 ---
 
 ## 5. Storage Estimates for Supabase
@@ -506,3 +538,22 @@ The PRD explicitly scopes v3.0 as single-user. Adding a `user_id` FK to ratings/
 | Metadata | 2 | audio_features, song_tags |
 | System | 1 | merge_log |
 | **Total** | **22** | |
+
+---
+
+## Document Status
+
+**Status:** Draft — pending manual review  
+**Next step:** Enoch manual review → advance to v1.0  
+**Companion files:** `schema.sql`, `erd.mermaid`, `prd.md`  
+**Open review notes:** RN-DB-001, RN-DB-002
+
+---
+
+## Revision History
+
+| Date | Version | Changes | Author |
+|------|---------|---------|--------|
+| 2026-02 | 0.1 | Initial schema design | Enoch Ko |
+| 2026-02 | 0.2 | Expanded design rationale; dual audio features storage; snapshot before/after on comparisons | Claude |
+| 2026-02 | 0.3 | Added §4.8 partial indexes (is_undone, canonical_id IS NULL); §4.9 source cache archival policy; added Document Status and Revision History sections | Claude |
